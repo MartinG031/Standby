@@ -25,6 +25,7 @@ struct StandbyMainView: View {
     @State private var offsetStep = 0
     @State private var isScreenOff = false      // 00:00-06:00 时间段黑屏
     @State private var isUserPresent = true     // 前置摄像头检测用户存在
+    private let schedule = StandbySchedule()
 
     // 轻微漂移：防烧屏
     private let driftTimer = Timer.publish(every: 60,
@@ -81,9 +82,7 @@ struct StandbyMainView: View {
     }
     
     private func updateScreenOff() {
-        let hour = Calendar.current.component(.hour, from: Date())
-        // 00:00-05:59 关闭显示；其他时间显示（再由摄像头决定）
-        isScreenOff = (hour >= 0 && hour < 6)
+        isScreenOff = schedule.shouldHideDisplay(at: Date())
     }
 }
 
