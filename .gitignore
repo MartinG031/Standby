@@ -1,0 +1,12 @@
+DerivedData/
+build/
+*.xcresult
+*.xccovarchive
+*.xccovreport
+*.moved-aside
+
+*.xcuserstate
+*.xcscmblueprint
+xcuserdata/
+
+.DS_Store

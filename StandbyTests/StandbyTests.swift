@@ -32,6 +32,13 @@ struct StandbyTests {
         #expect(!schedule.shouldHideDisplay(at: date(hour: 21, minute: 59)))
     }
 
+    @Test @MainActor func faceStyleIndexCyclesThroughAllClockFaces() {
+        let lastIndex = StandbyFaceStyle.allCases.count - 1
+
+        #expect(StandbyFaceStyle.index(after: 0) == 1)
+        #expect(StandbyFaceStyle.index(after: lastIndex) == 0)
+    }
+
     private var utcCalendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
