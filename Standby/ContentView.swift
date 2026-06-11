@@ -23,11 +23,20 @@ struct ContentView: View {
 
 struct StandbyMainView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("standby.showSeconds") private var showSeconds = true
+    @AppStorage("standby.showDate") private var showDate = true
+    @AppStorage("standby.nightHideEnabled") private var nightHideEnabled = true
+    @AppStorage("standby.presenceDetectionEnabled") private var presenceDetectionEnabled = true
+    @AppStorage("standby.burnInProtectionEnabled") private var burnInProtectionEnabled = true
+    @AppStorage("standby.autoRotateFaces") private var autoRotateFaces = true
+    @AppStorage("standby.selectedFace") private var selectedFaceRawValue = StandbyFaceStyle.classic.rawValue
+    @AppStorage("standby.displayBrightness") private var displayBrightness = 1.0
     @State private var offset = CGSize.zero
     @State private var offsetStep = 0
     @State private var isScreenOff = false      // 00:00-06:00 时间段黑屏
     @State private var isUserPresent = true     // 前置摄像头检测用户存在
     @State private var faceStyleIndex = 0
+    @State private var isShowingSettings = false
     private let schedule = StandbySchedule()
 
     // 轻微漂移：防烧屏
@@ -51,7 +60,10 @@ struct StandbyMainView: View {
                         BigClockView(fontSize: isCompact ? 120 : 160,
                                      style: currentFaceStyle,
                                      isCompact: isCompact,
-                                     driftOffset: offset)
+                                     driftOffset: burnInProtectionEnabled ? offset : .zero,
+                                     showSeconds: showSeconds,
+                                     showDate: showDate)
+                            .opacity(displayBrightness)
                     }
                 }
                 .frame(maxWidth: .infinity,
@@ -70,6 +82,11 @@ struct StandbyMainView: View {
                 }
                 .onReceive(driftTimer) { _ in
                     updateScreenOff() // 时间段判断
+                    guard burnInProtectionEnabled else {
+                        offset = .zero
+                        return
+                    }
+
                     offsetStep = (offsetStep + 1) % 4
                     withAnimation(.easeInOut(duration: 1)) {
                         switch offsetStep {
@@ -81,22 +98,58 @@ struct StandbyMainView: View {
                         }
                     }
                 }
-                
-                // 隐藏的前置摄像头检测视图（只负责更新 isUserPresent）
-                CameraPresenceView(isUserPresent: Binding(
-                    get: { isUserPresent },
-                    set: { present in
-                        updateUserPresence(present)
+                .onChange(of: nightHideEnabled) { _, _ in
+                    updateScreenOff()
+                }
+                .onChange(of: presenceDetectionEnabled) { _, enabled in
+                    if !enabled {
+                        isUserPresent = true
                     }
-                ))
-                    .frame(width: 1, height: 1)
-                    .opacity(0.001)   // 几乎不可见，只用于驱动摄像头
-                    .accessibilityHidden(true)
+                }
+                .onChange(of: burnInProtectionEnabled) { _, enabled in
+                    if !enabled {
+                        offset = .zero
+                    }
+                }
+
+                if presenceDetectionEnabled {
+                    // 隐藏的前置摄像头检测视图（只负责更新 isUserPresent）
+                    CameraPresenceView(isUserPresent: Binding(
+                        get: { isUserPresent },
+                        set: { present in
+                            updateUserPresence(present)
+                        }
+                    ))
+                        .frame(width: 1, height: 1)
+                        .opacity(0.001)   // 几乎不可见，只用于驱动摄像头
+                        .accessibilityHidden(true)
+                }
+
+                if isShowingSettings {
+                    StandbySettingsPanel(isPresented: $isShowingSettings,
+                                         showSeconds: $showSeconds,
+                                         showDate: $showDate,
+                                         nightHideEnabled: $nightHideEnabled,
+                                         presenceDetectionEnabled: $presenceDetectionEnabled,
+                                         burnInProtectionEnabled: $burnInProtectionEnabled,
+                                         autoRotateFaces: $autoRotateFaces,
+                                         selectedFaceRawValue: $selectedFaceRawValue,
+                                         displayBrightness: $displayBrightness)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(1)
+                }
             }
+            .contentShape(Rectangle())
+            .gesture(settingsSwipeGesture)
+            .animation(.easeInOut(duration: 0.25), value: isShowingSettings)
         }
     }
     
     private var currentFaceStyle: StandbyFaceStyle {
+        if !autoRotateFaces {
+            return StandbyFaceStyle(rawValue: selectedFaceRawValue) ?? .classic
+        }
+
         let styles = StandbyFaceStyle.allCases
         return styles[faceStyleIndex % styles.count]
     }
@@ -106,7 +159,8 @@ struct StandbyMainView: View {
     }
     
     private func updateScreenOff() {
-        isScreenOff = !ProcessInfo.processInfo.environment.keys.contains("STANDBY_DISABLE_NIGHT_HIDE")
+        isScreenOff = nightHideEnabled
+            && !ProcessInfo.processInfo.environment.keys.contains("STANDBY_DISABLE_NIGHT_HIDE")
             && schedule.shouldHideDisplay(at: Date())
     }
 
@@ -115,7 +169,7 @@ struct StandbyMainView: View {
     }
 
     private func updateUserPresence(_ present: Bool) {
-        if present && !isUserPresent {
+        if present && !isUserPresent && autoRotateFaces {
             withAnimation(.easeInOut(duration: 0.45)) {
                 faceStyleIndex = StandbyFaceStyle.index(after: faceStyleIndex)
             }
@@ -123,15 +177,152 @@ struct StandbyMainView: View {
 
         isUserPresent = present
     }
+
+    private var settingsSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 34)
+            .onEnded { value in
+                if value.translation.height < -54 {
+                    isShowingSettings = true
+                } else if value.translation.height > 54 {
+                    isShowingSettings = false
+                }
+            }
+    }
+}
+
+struct StandbySettingsPanel: View {
+    @Binding var isPresented: Bool
+    @Binding var showSeconds: Bool
+    @Binding var showDate: Bool
+    @Binding var nightHideEnabled: Bool
+    @Binding var presenceDetectionEnabled: Bool
+    @Binding var burnInProtectionEnabled: Bool
+    @Binding var autoRotateFaces: Bool
+    @Binding var selectedFaceRawValue: String
+    @Binding var displayBrightness: Double
+
+    var body: some View {
+        GeometryReader { proxy in
+            VStack {
+                Spacer()
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 18) {
+                        Capsule()
+                            .fill(.white.opacity(0.28))
+                            .frame(width: 42, height: 5)
+                            .padding(.top, 10)
+
+                        HStack {
+                            Text("设置")
+                                .font(.system(size: 22, weight: .bold, design: .rounded))
+
+                            Spacer()
+
+                            Button {
+                                isPresented = false
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 28, weight: .semibold))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("关闭设置")
+                        }
+
+                        LazyVGrid(columns: [
+                            GridItem(.flexible(), spacing: 14),
+                            GridItem(.flexible(), spacing: 14)
+                        ], spacing: 12) {
+                            settingToggle(title: "显示秒数", systemImage: "timer", isOn: $showSeconds)
+                            settingToggle(title: "显示日期", systemImage: "calendar", isOn: $showDate)
+                            settingToggle(title: "夜间隐藏", systemImage: "moon.fill", isOn: $nightHideEnabled)
+                            settingToggle(title: "人脸点亮", systemImage: "faceid", isOn: $presenceDetectionEnabled)
+                            settingToggle(title: "自动换界面", systemImage: "rectangle.2.swap", isOn: $autoRotateFaces)
+                            settingToggle(title: "防烧屏漂移", systemImage: "arrow.up.left.and.arrow.down.right", isOn: $burnInProtectionEnabled)
+                        }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("界面样式", systemImage: "rectangle.on.rectangle")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.72))
+
+                            Picker("界面样式", selection: $selectedFaceRawValue) {
+                                ForEach(StandbyFaceStyle.allCases) { style in
+                                    Text(style.name).tag(style.rawValue)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .disabled(autoRotateFaces)
+                            .opacity(autoRotateFaces ? 0.45 : 1)
+                        }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Label("亮度", systemImage: "sun.max.fill")
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.72))
+                                Spacer()
+                                Text("\(Int(displayBrightness * 100))%")
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.65))
+                            }
+
+                            Slider(value: $displayBrightness, in: 0.35...1.0, step: 0.05)
+                        }
+                    }
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 22)
+                }
+                .frame(maxHeight: max(260, proxy.size.height * 0.86))
+                .foregroundStyle(.white)
+                .background(.ultraThinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(.white.opacity(0.12), lineWidth: 1)
+                )
+                .padding(.horizontal, 18)
+                .padding(.bottom, 18)
+            }
+        }
+        .background(Color.black.opacity(0.32).ignoresSafeArea())
+        .gesture(
+            DragGesture(minimumDistance: 30)
+                .onEnded { value in
+                    if value.translation.height > 48 {
+                        isPresented = false
+                    }
+                }
+        )
+        .accessibilityIdentifier("standbySettingsPanel")
+    }
+
+    private func settingToggle(title: String,
+                               systemImage: String,
+                               isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+        }
+        .toggleStyle(.switch)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color.white.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
 }
 
 // MARK: - 大号时钟（带秒）
 
-enum StandbyFaceStyle: CaseIterable {
+enum StandbyFaceStyle: String, CaseIterable, Identifiable {
     case classic
     case orbit
     case horizon
     case focus
+
+    var id: String { rawValue }
 
     static func index(after index: Int) -> Int {
         (index + 1) % allCases.count
@@ -170,6 +361,8 @@ struct BigClockView : View {
     var style: StandbyFaceStyle = .classic
     var isCompact: Bool = false
     var driftOffset: CGSize = .zero
+    var showSeconds: Bool = true
+    var showDate: Bool = true
     
     @State private var now = Date()
     private let timer = Timer
@@ -177,9 +370,15 @@ struct BigClockView : View {
         .autoconnect()
     
     // HH:mm:ss 格式
-    private static let timeFormatter: DateFormatter = {
+    private static let timeWithSecondsFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
+
+    private static let timeWithoutSecondsFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
         return formatter
     }()
     
@@ -216,7 +415,8 @@ struct BigClockView : View {
     }
 
     private var timeText: String {
-        Self.timeFormatter.string(from: now)
+        let formatter = showSeconds ? Self.timeWithSecondsFormatter : Self.timeWithoutSecondsFormatter
+        return formatter.string(from: now)
     }
 
     private var dateText: String {
@@ -228,10 +428,12 @@ struct BigClockView : View {
             ZStack {
                 Color.black
 
-                moodGradient
-                centerWash
-                notchEdgeShade
-                verticalEdgeShade
+                if style != .classic {
+                    moodGradient
+                    centerWash
+                    notchEdgeShade
+                    verticalEdgeShade
+                }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
@@ -316,7 +518,9 @@ struct BigClockView : View {
     private var classicFace: some View {
         VStack(spacing: 12) {
             timeLabel(size: fontSize, weight: .bold, color: style.accent)
-            dateLabel(size: 30, color: style.secondary)
+            if showDate {
+                dateLabel(size: 30, color: style.secondary)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 32)
@@ -333,7 +537,9 @@ struct BigClockView : View {
                     .tracking(4)
                     .foregroundStyle(style.secondary.opacity(0.9))
                 timeLabel(size: fontSize * 0.84, weight: .heavy, color: style.accent)
-                dateLabel(size: 26, color: .white.opacity(0.80))
+                if showDate {
+                    dateLabel(size: 26, color: .white.opacity(0.80))
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
@@ -383,7 +589,9 @@ struct BigClockView : View {
                     Text(style.name)
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundStyle(style.accent)
-                    dateLabel(size: 24, color: .white.opacity(0.78))
+                    if showDate {
+                        dateLabel(size: 24, color: .white.opacity(0.78))
+                    }
                 }
             }
             .frame(maxWidth: .infinity)
@@ -404,21 +612,24 @@ struct BigClockView : View {
     }
 
     private var focusFace: some View {
-        HStack(spacing: isCompact ? 20 : 38) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("NOW")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .tracking(5)
-                    .foregroundStyle(style.secondary)
-                dateLabel(size: isCompact ? 22 : 28, color: .white.opacity(0.72))
+        Group {
+            if showDate {
+                HStack(spacing: isCompact ? 20 : 38) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        dateLabel(size: isCompact ? 22 : 28, color: .white.opacity(0.72))
+                    }
+                    .frame(width: isCompact ? 190 : 250, alignment: .leading)
+
+                    Divider()
+                        .frame(height: isCompact ? 135 : 180)
+                        .overlay(style.accent.opacity(0.55))
+
+                    timeLabel(size: fontSize * 0.84, weight: .semibold, color: style.accent)
+                }
+            } else {
+                timeLabel(size: fontSize * 0.88, weight: .semibold, color: style.accent)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(width: isCompact ? 190 : 250, alignment: .leading)
-
-            Divider()
-                .frame(height: isCompact ? 135 : 180)
-                .overlay(style.accent.opacity(0.55))
-
-            timeLabel(size: fontSize * 0.84, weight: .semibold, color: style.accent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 36)
