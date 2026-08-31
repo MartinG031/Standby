@@ -143,6 +143,7 @@ struct StandbyMainView: View {
             .gesture(settingsSwipeGesture)
             .animation(.easeInOut(duration: 0.25), value: isShowingSettings)
         }
+        .ignoresSafeArea(.all)
     }
     
     private var currentFaceStyle: StandbyFaceStyle {
@@ -321,6 +322,7 @@ enum StandbyFaceStyle: String, CaseIterable, Identifiable {
     case orbit
     case horizon
     case focus
+    case zenith
 
     var id: String { rawValue }
 
@@ -334,24 +336,27 @@ enum StandbyFaceStyle: String, CaseIterable, Identifiable {
         case .orbit: "Orbit"
         case .horizon: "Horizon"
         case .focus: "Focus"
+        case .zenith: "Zenith"
         }
     }
 
     var accent: Color {
         switch self {
         case .classic: .white
-        case .orbit: Color(red: 0.53, green: 0.90, blue: 1.0)
-        case .horizon: Color(red: 1.0, green: 0.72, blue: 0.36)
-        case .focus: Color(red: 0.66, green: 1.0, blue: 0.68)
+        case .orbit: Color(red: 0.16, green: 0.98, blue: 0.87)
+        case .horizon: Color(red: 1.0, green: 0.81, blue: 0.44)
+        case .focus: Color(red: 0.51, green: 1.0, blue: 0.94)
+        case .zenith: Color(red: 0.81, green: 0.62, blue: 0.99)
         }
     }
 
     var secondary: Color {
         switch self {
         case .classic: Color.white.opacity(0.72)
-        case .orbit: Color(red: 0.72, green: 0.78, blue: 1.0)
-        case .horizon: Color(red: 1.0, green: 0.44, blue: 0.56)
-        case .focus: Color(red: 0.70, green: 0.88, blue: 1.0)
+        case .orbit: Color(red: 0.30, green: 0.51, blue: 1.0)
+        case .horizon: Color(red: 0.14, green: 0.46, blue: 0.87)
+        case .focus: Color(red: 0.94, green: 0.40, blue: 0.71)
+        case .zenith: Color(red: 0.45, green: 0.40, blue: 0.94)
         }
     }
 }
@@ -404,6 +409,8 @@ struct BigClockView : View {
                     horizonFace
                 case .focus:
                     focusFace
+                case .zenith:
+                    zenithFace
                 }
             }
             .offset(driftOffset)
@@ -411,6 +418,8 @@ struct BigClockView : View {
         .onReceive(timer) { value in
             now = value
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea(.all)
         .transition(.opacity.combined(with: .scale(scale: 0.98)))
     }
 
@@ -431,6 +440,7 @@ struct BigClockView : View {
                 if style != .classic {
                     moodGradient
                     centerWash
+                    artLineField
                     notchEdgeShade
                     verticalEdgeShade
                 }
@@ -457,23 +467,30 @@ struct BigClockView : View {
             ]
         case .orbit:
             [
-                Color(red: 0.02, green: 0.03, blue: 0.10),
-                Color(red: 0.03, green: 0.22, blue: 0.27),
-                Color(red: 0.09, green: 0.05, blue: 0.17),
+                Color(red: 0.01, green: 0.02, blue: 0.08),
+                Color(red: 0.02, green: 0.21, blue: 0.24),
+                Color(red: 0.10, green: 0.18, blue: 0.43),
                 Color.black
             ]
         case .horizon:
             [
-                Color(red: 0.04, green: 0.02, blue: 0.06),
-                Color(red: 0.22, green: 0.07, blue: 0.13),
-                Color(red: 0.44, green: 0.17, blue: 0.11),
+                Color(red: 0.04, green: 0.02, blue: 0.04),
+                Color(red: 0.30, green: 0.16, blue: 0.08),
+                Color(red: 0.03, green: 0.15, blue: 0.34),
                 Color.black
             ]
         case .focus:
             [
                 Color(red: 0.01, green: 0.04, blue: 0.04),
-                Color(red: 0.03, green: 0.16, blue: 0.13),
-                Color(red: 0.02, green: 0.06, blue: 0.10),
+                Color(red: 0.02, green: 0.20, blue: 0.18),
+                Color(red: 0.24, green: 0.07, blue: 0.18),
+                Color.black
+            ]
+        case .zenith:
+            [
+                Color(red: 0.03, green: 0.02, blue: 0.09),
+                Color(red: 0.16, green: 0.08, blue: 0.30),
+                Color(red: 0.07, green: 0.06, blue: 0.35),
                 Color.black
             ]
         }
@@ -489,6 +506,29 @@ struct BigClockView : View {
         ], startPoint: .leading, endPoint: .trailing)
             .blur(radius: 28)
             .opacity(0.72)
+    }
+
+    private var artLineField: some View {
+        GeometryReader { proxy in
+            ZStack {
+                ForEach(0..<7, id: \.self) { index in
+                    Rectangle()
+                        .fill(style.secondary.opacity(index.isMultiple(of: 2) ? 0.08 : 0.04))
+                        .frame(width: proxy.size.width * 0.42, height: 1)
+                        .rotationEffect(.degrees(index.isMultiple(of: 2) ? -18 : 18))
+                        .offset(x: CGFloat(index - 3) * proxy.size.width * 0.16,
+                                y: CGFloat(index % 3 - 1) * proxy.size.height * 0.18)
+                }
+
+                ForEach(0..<5, id: \.self) { index in
+                    Rectangle()
+                        .fill(style.accent.opacity(0.05))
+                        .frame(width: 1, height: proxy.size.height * 0.56)
+                        .offset(x: CGFloat(index - 2) * proxy.size.width * 0.18)
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
     }
 
     private var notchEdgeShade: some View {
@@ -527,33 +567,39 @@ struct BigClockView : View {
     }
 
     private var orbitFace: some View {
-        ZStack {
-            orbitRings
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        GeometryReader { proxy in
+            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            let outerSize = min(proxy.size.width * 0.58, proxy.size.height * 0.78)
+            let innerSize = outerSize * 0.84
 
-            VStack(spacing: 10) {
-                Text(style.name.uppercased())
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .tracking(4)
-                    .foregroundStyle(style.secondary.opacity(0.9))
-                timeLabel(size: fontSize * 0.84, weight: .heavy, color: style.accent)
-                if showDate {
-                    dateLabel(size: 26, color: .white.opacity(0.80))
+            ZStack {
+                TimelineView(.animation) { timeline in
+                    orbitRings(innerSize: innerSize,
+                               outerSize: outerSize,
+                               rotation: orbitRotation(for: timeline.date))
                 }
+                .position(center)
+
+                VStack(spacing: 12) {
+                    timeLabel(size: fontSize * 0.84,
+                              weight: .heavy,
+                              color: style.accent)
+                    if showDate {
+                        dateLabel(size: 26, color: .white.opacity(0.80))
+                    }
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .position(center)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 36)
-        .offset(y: isCompact ? -46 : -58)
     }
 
-    private var orbitRings: some View {
-        let innerSize: CGFloat = isCompact ? 270 : 400
-        let outerSize: CGFloat = isCompact ? 318 : 474
-        let rotation = Double(Calendar.current.component(.second, from: now)) * 6
-
-        return ZStack {
+    private func orbitRings(innerSize: CGFloat,
+                            outerSize: CGFloat,
+                            rotation: Double) -> some View {
+        ZStack {
             Circle()
                 .stroke(style.accent.opacity(0.20), lineWidth: 2)
                 .frame(width: innerSize, height: innerSize)
@@ -578,61 +624,128 @@ struct BigClockView : View {
         }
     }
 
+    private func orbitRotation(for date: Date) -> Double {
+        let components = Calendar.current.dateComponents([.second, .nanosecond], from: date)
+        let seconds = Double(components.second ?? 0)
+        let fractionalSecond = Double(components.nanosecond ?? 0) / 1_000_000_000
+        return (seconds + fractionalSecond) * 6
+    }
+
     private var horizonFace: some View {
-        VStack(spacing: 18) {
-            Spacer()
+        ZStack {
+            horizonGlowLine(width: isCompact ? 500 : 720)
+                .offset(y: horizonLineOffset)
 
-            HStack(alignment: .lastTextBaseline, spacing: 20) {
-                timeLabel(size: fontSize * 0.76, weight: .black, color: .white)
+            VStack(spacing: 14) {
+                timeLabel(size: fontSize * 0.78, weight: .black, color: .white)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(style.name)
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundStyle(style.accent)
-                    if showDate {
-                        dateLabel(size: 24, color: .white.opacity(0.78))
-                    }
+                if showDate {
+                    dateLabel(size: isCompact ? 23 : 27, color: .white.opacity(0.78))
                 }
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 34)
+    }
+
+    private var horizonLineOffset: CGFloat {
+        if showDate {
+            isCompact ? 118 : 148
+        } else {
+            isCompact ? 82 : 102
+        }
+    }
+
+    private var focusFace: some View {
+        ZStack {
+            HStack(spacing: isCompact ? 260 : 360) {
+                focusDivider
+                focusDivider
+            }
+
+            VStack(spacing: 14) {
+                timeLabel(size: fontSize * 0.86, weight: .semibold, color: style.accent)
+                if showDate {
+                    dateLabel(size: isCompact ? 22 : 27, color: .white.opacity(0.72))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 36)
+    }
+
+    private func horizonGlowLine(width: CGFloat) -> some View {
+        Rectangle()
+            .fill(LinearGradient(colors: [
+                .clear,
+                style.secondary.opacity(0.82),
+                style.accent.opacity(0.90),
+                style.secondary.opacity(0.82),
+                .clear
+            ], startPoint: .leading, endPoint: .trailing))
+            .frame(width: width, height: 3)
+            .blur(radius: 0.3)
+    }
+
+    private var focusDivider: some View {
+        Rectangle()
+            .fill(LinearGradient(colors: [
+                .clear,
+                style.secondary.opacity(0.42),
+                style.accent.opacity(0.62),
+                .clear
+            ], startPoint: .top, endPoint: .bottom))
+            .frame(width: 2, height: isCompact ? 130 : 176)
+    }
+
+    private var zenithFace: some View {
+        ZStack {
+            HStack(spacing: isCompact ? 38 : 64) {
+                zenithRail(height: isCompact ? 150 : 196, flipped: false)
+
+                VStack(spacing: 12) {
+                    timeLabel(size: fontSize * 0.82, weight: .heavy, color: style.accent)
+                        .shadow(color: style.secondary.opacity(0.36), radius: 18, x: 0, y: 0)
+
+                    if showDate {
+                        dateLabel(size: isCompact ? 23 : 28, color: .white.opacity(0.74))
+                    }
+                }
+                .frame(minWidth: isCompact ? 430 : 560)
+
+                zenithRail(height: isCompact ? 150 : 196, flipped: true)
+            }
 
             Rectangle()
                 .fill(LinearGradient(colors: [
                     .clear,
-                    style.accent.opacity(0.86),
-                    style.secondary.opacity(0.76),
+                    style.secondary.opacity(0.42),
                     .clear
                 ], startPoint: .leading, endPoint: .trailing))
-                .frame(height: 3)
-                .padding(.horizontal, isCompact ? 44 : 110)
-
-            Spacer()
-        }
-        .padding(.horizontal, 34)
-    }
-
-    private var focusFace: some View {
-        Group {
-            if showDate {
-                HStack(spacing: isCompact ? 20 : 38) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        dateLabel(size: isCompact ? 22 : 28, color: .white.opacity(0.72))
-                    }
-                    .frame(width: isCompact ? 190 : 250, alignment: .leading)
-
-                    Divider()
-                        .frame(height: isCompact ? 135 : 180)
-                        .overlay(style.accent.opacity(0.55))
-
-                    timeLabel(size: fontSize * 0.84, weight: .semibold, color: style.accent)
-                }
-            } else {
-                timeLabel(size: fontSize * 0.88, weight: .semibold, color: style.accent)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+                .frame(width: isCompact ? 540 : 740, height: 2)
+                .offset(y: isCompact ? 74 : 98)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 36)
+        .padding(.horizontal, 38)
+    }
+
+    private func zenithRail(height: CGFloat, flipped: Bool) -> some View {
+        VStack(spacing: 9) {
+            ForEach(0..<5, id: \.self) { index in
+                Capsule()
+                    .fill(LinearGradient(colors: [
+                        style.secondary.opacity(0.15),
+                        style.accent.opacity(0.56),
+                        style.secondary.opacity(0.15)
+                    ], startPoint: .top, endPoint: .bottom))
+                    .frame(width: CGFloat(2 + index % 2), height: height / CGFloat(8 - index))
+            }
+        }
+        .frame(width: 22, height: height)
+        .scaleEffect(x: flipped ? -1 : 1, y: 1)
+        .opacity(0.92)
     }
 
     private func timeLabel(size: CGFloat, weight: Font.Weight, color: Color) -> some View {
