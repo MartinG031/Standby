@@ -6,7 +6,7 @@ Standby is designed to run locally on the device.
 
 The app uses the front camera for local face metadata detection through `AVCaptureMetadataOutput`. The camera feed is not shown in the UI, written to disk, uploaded, or sent to any server.
 
-Face metadata is used only to decide whether the standby clock should be visible and when to rotate to the next clock face.
+Face metadata is used only to decide whether the standby clock should be visible and when to choose a new background.
 
 ## Data Collection
 

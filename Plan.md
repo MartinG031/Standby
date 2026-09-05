@@ -2,7 +2,7 @@
 
 ## 1. Project Overview
 
-Standby is an iOS SwiftUI app that turns a device into a dark, landscape-first standby clock. The current experience shows large time and date display, rotates between multiple clock faces, applies small content drift to reduce burn-in risk, and uses front-camera face metadata detection to hide the display when no user is present.
+Standby is an iOS SwiftUI app that turns a device into a dark, landscape-first standby clock. The current experience shows a large time and date display over randomized solid or gradient backgrounds, applies small content drift to reduce burn-in risk, and uses front-camera face metadata detection to hide the display when no user is present.
 
 The app currently targets iOS 26.1 and uses Swift 6 for the app target.
 
@@ -13,8 +13,8 @@ The app currently targets iOS 26.1 and uses Swift 6 for the app target.
 - Single app target: `Standby`.
 - Test targets exist: `StandbyTests` and `StandbyUITests`.
 - Main UI shows a large `HH:mm:ss` clock and Chinese date string.
-- Four clock faces are available: Classic, Orbit, Horizon, and Focus.
-- The clock face changes whenever the user returns from absent to present.
+- Pure black and visibly fluid mesh-color backgrounds are available.
+- The palette, flow direction, speed, and phase change whenever the user returns from absent to present.
 - Display is forced into dark appearance.
 - Landscape orientation is configured for iPhone.
 - Content drifts slightly every minute while the full-screen background remains fixed.
@@ -86,8 +86,8 @@ Status: Mostly completed. Continue validating on real devices.
 
 ### Phase 3: Polish Standby Presentation
 
-- Add multiple clock faces.
-- Rotate clock faces when a user returns after absence.
+- Add multiple background palettes.
+- Randomize backgrounds when a user returns after absence.
 - Keep all backgrounds full-screen and fixed while only content drifts.
 - Make background edges dark enough to reduce notch and rounded-corner visibility.
 
@@ -157,7 +157,7 @@ Acceptance criteria:
 
 - Keep colored background energy away from the notch and rounded-corner areas.
 - Move only foreground clock content for burn-in protection.
-- Keep clock faces visually distinct while preserving low-light readability.
+- Keep randomized backgrounds visually distinct while preserving low-light readability.
 
 ### Configuration
 

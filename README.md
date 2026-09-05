@@ -5,9 +5,10 @@ Standby is a dark, landscape-first iOS clock app for a spare device on a desk or
 ## Highlights
 
 - Large `HH:mm:ss` SwiftUI clock with Chinese date and weekday.
-- Four rotating clock faces: Classic, Orbit, Horizon, and Focus.
-- Face-detection wake behavior: each return from absent to present advances to a different clock face.
-- Full-screen dark backgrounds designed for landscape standby use and notch concealment.
+- Random backgrounds with pure black and fluid, Apple Music-inspired mesh color options.
+- Face-detection wake behavior: each return from absent to present picks a different palette, flow direction, speed, and phase.
+- Feathered rounded color fields sit inside a black perimeter for landscape notch concealment.
+- Gradient color relationships are inspired by [CoolHue 2.0](https://webkul.github.io/coolhue/) and tuned darker for bedside use.
 - Small periodic clock drift to reduce burn-in risk without moving the full-screen background.
 - Scheduled display hiding from 00:00 through 05:59.
 - Front-camera presence detection using local `AVCaptureMetadataOutput` face metadata only.
@@ -43,7 +44,7 @@ xcodebuild \
 
 ## Test
 
-Unit tests cover deterministic schedule behavior and clock-face cycling:
+Unit tests cover deterministic schedule behavior and non-repeating background selection:
 
 ```sh
 xcodebuild test \
@@ -64,7 +65,7 @@ Before release, verify:
 - Landscape launch and safe-area behavior on notched devices.
 - Camera permission prompt and denied-permission fallback.
 - Clock hides after face absence and returns when a face is visible.
-- Clock face changes after a return from absent to present.
+- Background and gradient direction change after a return from absent to present.
 - 00:00-05:59 scheduled hiding.
 - Long-running standby behavior while plugged in.
 
@@ -72,11 +73,11 @@ Before release, verify:
 
 ```text
 Standby/
-  ContentView.swift          Main SwiftUI UI, clock faces, and camera presence bridge
+  ContentView.swift          Main SwiftUI UI, background system, and camera presence bridge
   StandbySchedule.swift      Testable display-hide schedule
   StandbyApp.swift           App entry point
 StandbyTests/
-  StandbyTests.swift         Deterministic schedule and style-cycle tests
+  StandbyTests.swift         Deterministic schedule and background-selection tests
 StandbyUITests/
   StandbyUITests.swift       Basic launch UI tests
 Plan.md                      Roadmap and verification checklist

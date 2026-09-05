@@ -32,11 +32,13 @@ struct StandbyTests {
         #expect(!schedule.shouldHideDisplay(at: date(hour: 21, minute: 59)))
     }
 
-    @Test @MainActor func faceStyleIndexCyclesThroughAllClockFaces() {
-        let lastIndex = StandbyFaceStyle.allCases.count - 1
+    @Test @MainActor func randomBackgroundIndexIsValidAndDoesNotRepeat() {
+        for index in StandbyBackgroundStyle.allCases.indices {
+            let nextIndex = StandbyBackgroundStyle.randomIndex(excluding: index)
 
-        #expect(StandbyFaceStyle.index(after: 0) == 1)
-        #expect(StandbyFaceStyle.index(after: lastIndex) == 0)
+            #expect(StandbyBackgroundStyle.allCases.indices.contains(nextIndex))
+            #expect(nextIndex != index)
+        }
     }
 
     private var utcCalendar: Calendar {

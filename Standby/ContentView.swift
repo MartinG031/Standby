@@ -3,9 +3,6 @@ import Combine
 import AVFoundation
 import UIKit
 
-// 统一前景色（白色）
-let standbyAccent = Color.white
-
 // MARK: - 根视图
 
 struct ContentView: View {
@@ -28,14 +25,17 @@ struct StandbyMainView: View {
     @AppStorage("standby.nightHideEnabled") private var nightHideEnabled = true
     @AppStorage("standby.presenceDetectionEnabled") private var presenceDetectionEnabled = true
     @AppStorage("standby.burnInProtectionEnabled") private var burnInProtectionEnabled = true
-    @AppStorage("standby.autoRotateFaces") private var autoRotateFaces = true
-    @AppStorage("standby.selectedFace") private var selectedFaceRawValue = StandbyFaceStyle.classic.rawValue
-    @AppStorage("standby.displayBrightness") private var displayBrightness = 1.0
+    @AppStorage("standby.autoRotateFaces") private var randomBackgroundEnabled = true
+    @AppStorage("standby.selectedFace") private var selectedBackgroundRawValue = StandbyBackgroundStyle.pureBlack.rawValue
+    @AppStorage("standby.animatedBackgroundEnabled") private var animatedBackgroundEnabled = true
+    @AppStorage("standby.backgroundWidthScale") private var backgroundWidthScale = 0.88
+    @AppStorage("standby.backgroundHeightScale") private var backgroundHeightScale = 1.0
     @State private var offset = CGSize.zero
     @State private var offsetStep = 0
     @State private var isScreenOff = false      // 00:00-06:00 时间段黑屏
     @State private var isUserPresent = true     // 前置摄像头检测用户存在
-    @State private var faceStyleIndex = 0
+    @State private var backgroundStyleIndex = Int.random(in: 0..<StandbyBackgroundStyle.allCases.count)
+    @State private var visualSeed = Int.random(in: 0..<10_000)
     @State private var isShowingSettings = false
     private let schedule = StandbySchedule()
 
@@ -58,12 +58,15 @@ struct StandbyMainView: View {
                             .accessibilityIdentifier("standbyHiddenDisplay")
                     } else {
                         BigClockView(fontSize: isCompact ? 120 : 160,
-                                     style: currentFaceStyle,
+                                     backgroundStyle: currentBackgroundStyle,
                                      isCompact: isCompact,
+                                     visualSeed: randomBackgroundEnabled ? visualSeed : 0,
+                                     animatedBackgroundEnabled: animatedBackgroundEnabled,
+                                     backgroundWidthScale: backgroundWidthScale,
+                                     backgroundHeightScale: backgroundHeightScale,
                                      driftOffset: burnInProtectionEnabled ? offset : .zero,
                                      showSeconds: showSeconds,
                                      showDate: showDate)
-                            .opacity(displayBrightness)
                     }
                 }
                 .frame(maxWidth: .infinity,
@@ -71,6 +74,9 @@ struct StandbyMainView: View {
                        alignment: .center)
                 .background(standbyBackground.ignoresSafeArea())
                 .onAppear {
+                    if StandbyBackgroundStyle(rawValue: selectedBackgroundRawValue) == nil {
+                        selectedBackgroundRawValue = StandbyBackgroundStyle.pureBlack.rawValue
+                    }
                     updateScreenOff()
                     setIdleTimerDisabled(true)
                 }
@@ -111,6 +117,11 @@ struct StandbyMainView: View {
                         offset = .zero
                     }
                 }
+                .onChange(of: randomBackgroundEnabled) { _, enabled in
+                    if enabled {
+                        randomizeVisual()
+                    }
+                }
 
                 if presenceDetectionEnabled {
                     // 隐藏的前置摄像头检测视图（只负责更新 isUserPresent）
@@ -132,9 +143,11 @@ struct StandbyMainView: View {
                                          nightHideEnabled: $nightHideEnabled,
                                          presenceDetectionEnabled: $presenceDetectionEnabled,
                                          burnInProtectionEnabled: $burnInProtectionEnabled,
-                                         autoRotateFaces: $autoRotateFaces,
-                                         selectedFaceRawValue: $selectedFaceRawValue,
-                                         displayBrightness: $displayBrightness)
+                                         randomBackgroundEnabled: $randomBackgroundEnabled,
+                                         animatedBackgroundEnabled: $animatedBackgroundEnabled,
+                                         selectedBackgroundRawValue: $selectedBackgroundRawValue,
+                                         backgroundWidthScale: $backgroundWidthScale,
+                                         backgroundHeightScale: $backgroundHeightScale)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(1)
                 }
@@ -146,13 +159,13 @@ struct StandbyMainView: View {
         .ignoresSafeArea(.all)
     }
     
-    private var currentFaceStyle: StandbyFaceStyle {
-        if !autoRotateFaces {
-            return StandbyFaceStyle(rawValue: selectedFaceRawValue) ?? .classic
+    private var currentBackgroundStyle: StandbyBackgroundStyle {
+        if !randomBackgroundEnabled {
+            return StandbyBackgroundStyle(rawValue: selectedBackgroundRawValue) ?? .pureBlack
         }
 
-        let styles = StandbyFaceStyle.allCases
-        return styles[faceStyleIndex % styles.count]
+        let styles = StandbyBackgroundStyle.allCases
+        return styles[backgroundStyleIndex % styles.count]
     }
 
     private var standbyBackground: some View {
@@ -170,13 +183,18 @@ struct StandbyMainView: View {
     }
 
     private func updateUserPresence(_ present: Bool) {
-        if present && !isUserPresent && autoRotateFaces {
+        if present && !isUserPresent && randomBackgroundEnabled {
             withAnimation(.easeInOut(duration: 0.45)) {
-                faceStyleIndex = StandbyFaceStyle.index(after: faceStyleIndex)
+                randomizeVisual()
             }
         }
 
         isUserPresent = present
+    }
+
+    private func randomizeVisual() {
+        backgroundStyleIndex = StandbyBackgroundStyle.randomIndex(excluding: backgroundStyleIndex)
+        visualSeed = Int.random(in: 0..<10_000)
     }
 
     private var settingsSwipeGesture: some Gesture {
@@ -198,9 +216,11 @@ struct StandbySettingsPanel: View {
     @Binding var nightHideEnabled: Bool
     @Binding var presenceDetectionEnabled: Bool
     @Binding var burnInProtectionEnabled: Bool
-    @Binding var autoRotateFaces: Bool
-    @Binding var selectedFaceRawValue: String
-    @Binding var displayBrightness: Double
+    @Binding var randomBackgroundEnabled: Bool
+    @Binding var animatedBackgroundEnabled: Bool
+    @Binding var selectedBackgroundRawValue: String
+    @Binding var backgroundWidthScale: Double
+    @Binding var backgroundHeightScale: Double
 
     var body: some View {
         GeometryReader { proxy in
@@ -238,38 +258,47 @@ struct StandbySettingsPanel: View {
                             settingToggle(title: "显示日期", systemImage: "calendar", isOn: $showDate)
                             settingToggle(title: "夜间隐藏", systemImage: "moon.fill", isOn: $nightHideEnabled)
                             settingToggle(title: "人脸点亮", systemImage: "faceid", isOn: $presenceDetectionEnabled)
-                            settingToggle(title: "自动换界面", systemImage: "rectangle.2.swap", isOn: $autoRotateFaces)
+                            settingToggle(title: "人脸随机背景", systemImage: "shuffle", isOn: $randomBackgroundEnabled)
                             settingToggle(title: "防烧屏漂移", systemImage: "arrow.up.left.and.arrow.down.right", isOn: $burnInProtectionEnabled)
                         }
 
                         VStack(alignment: .leading, spacing: 10) {
-                            Label("界面样式", systemImage: "rectangle.on.rectangle")
-                                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.white.opacity(0.72))
+                            HStack {
+                                Label("固定背景", systemImage: "paintpalette.fill")
+                                Spacer()
+                                Toggle("流动", isOn: $animatedBackgroundEnabled)
+                                    .fixedSize()
+                            }
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.72))
 
-                            Picker("界面样式", selection: $selectedFaceRawValue) {
-                                ForEach(StandbyFaceStyle.allCases) { style in
+                            Picker("固定背景", selection: $selectedBackgroundRawValue) {
+                                ForEach(StandbyBackgroundStyle.allCases) { style in
                                     Text(style.name).tag(style.rawValue)
                                 }
                             }
-                            .pickerStyle(.segmented)
-                            .disabled(autoRotateFaces)
-                            .opacity(autoRotateFaces ? 0.45 : 1)
+                            .pickerStyle(.menu)
+                            .disabled(randomBackgroundEnabled)
+                            .opacity(randomBackgroundEnabled ? 0.45 : 1)
                         }
 
                         VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Label("亮度", systemImage: "sun.max.fill")
-                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(.white.opacity(0.72))
-                                Spacer()
-                                Text("\(Int(displayBrightness * 100))%")
-                                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                                    .foregroundStyle(.white.opacity(0.65))
-                            }
+                            Label("背景范围", systemImage: "aspectratio")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.72))
 
-                            Slider(value: $displayBrightness, in: 0.35...1.0, step: 0.05)
+                            dimensionSlider(title: "宽度", value: $backgroundWidthScale)
+                            dimensionSlider(title: "高度", value: $backgroundHeightScale)
                         }
+
+                        HStack {
+                            Label("亮度", systemImage: "sun.max.fill")
+                            Spacer()
+                            Text("跟随系统")
+                                .foregroundStyle(.white.opacity(0.65))
+                        }
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.72))
                     }
                     .padding(.horizontal, 22)
                     .padding(.bottom, 22)
@@ -298,6 +327,23 @@ struct StandbySettingsPanel: View {
         .accessibilityIdentifier("standbySettingsPanel")
     }
 
+    private func dimensionSlider(title: String,
+                                 value: Binding<Double>) -> some View {
+        VStack(spacing: 6) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text("\(Int(value.wrappedValue * 100))%")
+                    .fontWeight(.bold)
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+            .font(.system(size: 14, design: .rounded))
+
+            Slider(value: value, in: 0.70...1.0, step: 0.01)
+                .accessibilityLabel("背景\(title)")
+        }
+    }
+
     private func settingToggle(title: String,
                                systemImage: String,
                                isOn: Binding<Bool>) -> some View {
@@ -317,54 +363,134 @@ struct StandbySettingsPanel: View {
 
 // MARK: - 大号时钟（带秒）
 
-enum StandbyFaceStyle: String, CaseIterable, Identifiable {
-    case classic
-    case orbit
-    case horizon
-    case focus
-    case zenith
+enum StandbyBackgroundStyle: String, CaseIterable, Identifiable {
+    case pureBlack = "classic"
+    case seaMist
+    case spring
+    case clearSky
+    case dawn
+    case deepForest
+    case ocean
+    case graphite
 
     var id: String { rawValue }
 
-    static func index(after index: Int) -> Int {
-        (index + 1) % allCases.count
+    static func randomIndex(excluding index: Int) -> Int {
+        guard allCases.count > 1 else { return 0 }
+        guard allCases.indices.contains(index) else {
+            return Int.random(in: allCases.indices)
+        }
+
+        let candidate = Int.random(in: 0..<(allCases.count - 1))
+        return candidate >= index ? candidate + 1 : candidate
     }
 
     var name: String {
         switch self {
-        case .classic: "Classic"
-        case .orbit: "Orbit"
-        case .horizon: "Horizon"
-        case .focus: "Focus"
-        case .zenith: "Zenith"
+        case .pureBlack: "纯黑"
+        case .seaMist: "海雾"
+        case .spring: "春绿"
+        case .clearSky: "晴空"
+        case .dawn: "晨曦"
+        case .deepForest: "深林"
+        case .ocean: "海洋"
+        case .graphite: "石墨"
         }
     }
 
     var accent: Color {
         switch self {
-        case .classic: .white
-        case .orbit: Color(red: 0.16, green: 0.98, blue: 0.87)
-        case .horizon: Color(red: 1.0, green: 0.81, blue: 0.44)
-        case .focus: Color(red: 0.51, green: 1.0, blue: 0.94)
-        case .zenith: Color(red: 0.81, green: 0.62, blue: 0.99)
+        case .pureBlack: .white
+        case .seaMist: Color(red: 0.82, green: 0.98, blue: 0.93)
+        case .spring: Color(red: 0.88, green: 1.00, blue: 0.78)
+        case .clearSky: Color(red: 0.82, green: 0.95, blue: 1.00)
+        case .dawn: Color(red: 1.00, green: 0.92, blue: 0.76)
+        case .deepForest: Color(red: 0.86, green: 0.97, blue: 0.87)
+        case .ocean: Color(red: 0.84, green: 0.95, blue: 1.00)
+        case .graphite: .white
         }
     }
 
     var secondary: Color {
         switch self {
-        case .classic: Color.white.opacity(0.72)
-        case .orbit: Color(red: 0.30, green: 0.51, blue: 1.0)
-        case .horizon: Color(red: 0.14, green: 0.46, blue: 0.87)
-        case .focus: Color(red: 0.94, green: 0.40, blue: 0.71)
-        case .zenith: Color(red: 0.45, green: 0.40, blue: 0.94)
+        case .pureBlack, .graphite: Color.white.opacity(0.72)
+        case .seaMist: Color(red: 0.66, green: 0.88, blue: 0.86)
+        case .spring: Color(red: 0.67, green: 0.88, blue: 0.67)
+        case .clearSky: Color(red: 0.66, green: 0.84, blue: 0.94)
+        case .dawn: Color(red: 0.93, green: 0.73, blue: 0.66)
+        case .deepForest: Color(red: 0.61, green: 0.80, blue: 0.66)
+        case .ocean: Color(red: 0.61, green: 0.80, blue: 0.91)
         }
     }
+
+    var flowColors: [Color] {
+        switch self {
+        case .pureBlack:
+            [.black, .black, .black, .black]
+        case .seaMist:
+            [
+                Color(red: 0.02, green: 0.18, blue: 0.30),
+                Color(red: 0.02, green: 0.52, blue: 0.47),
+                Color(red: 0.29, green: 0.72, blue: 0.58),
+                Color(red: 0.08, green: 0.34, blue: 0.53)
+            ]
+        case .spring:
+            [
+                Color(red: 0.02, green: 0.25, blue: 0.22),
+                Color(red: 0.12, green: 0.62, blue: 0.37),
+                Color(red: 0.57, green: 0.72, blue: 0.18),
+                Color(red: 0.08, green: 0.46, blue: 0.55)
+            ]
+        case .clearSky:
+            [
+                Color(red: 0.04, green: 0.20, blue: 0.52),
+                Color(red: 0.08, green: 0.52, blue: 0.85),
+                Color(red: 0.20, green: 0.76, blue: 0.69),
+                Color(red: 0.34, green: 0.43, blue: 0.82)
+            ]
+        case .dawn:
+            [
+                Color(red: 0.34, green: 0.10, blue: 0.36),
+                Color(red: 0.76, green: 0.21, blue: 0.42),
+                Color(red: 0.95, green: 0.48, blue: 0.25),
+                Color(red: 0.45, green: 0.31, blue: 0.65)
+            ]
+        case .deepForest:
+            [
+                Color(red: 0.01, green: 0.10, blue: 0.11),
+                Color(red: 0.03, green: 0.32, blue: 0.23),
+                Color(red: 0.22, green: 0.53, blue: 0.26),
+                Color(red: 0.08, green: 0.25, blue: 0.39)
+            ]
+        case .ocean:
+            [
+                Color(red: 0.01, green: 0.07, blue: 0.25),
+                Color(red: 0.03, green: 0.28, blue: 0.60),
+                Color(red: 0.02, green: 0.57, blue: 0.62),
+                Color(red: 0.20, green: 0.31, blue: 0.68)
+            ]
+        case .graphite:
+            [
+                Color(red: 0.04, green: 0.05, blue: 0.08),
+                Color(red: 0.18, green: 0.21, blue: 0.28),
+                Color(red: 0.35, green: 0.39, blue: 0.43),
+                Color(red: 0.12, green: 0.25, blue: 0.28)
+            ]
+        }
+    }
+
+    var isPureBlack: Bool { self == .pureBlack }
+
 }
 
 struct BigClockView : View {
     var fontSize: CGFloat = 140
-    var style: StandbyFaceStyle = .classic
+    var backgroundStyle: StandbyBackgroundStyle = .pureBlack
     var isCompact: Bool = false
+    var visualSeed: Int = 0
+    var animatedBackgroundEnabled: Bool = true
+    var backgroundWidthScale: Double = 0.88
+    var backgroundHeightScale: Double = 1.0
     var driftOffset: CGSize = .zero
     var showSeconds: Bool = true
     var showDate: Bool = true
@@ -398,29 +524,16 @@ struct BigClockView : View {
     var body: some View {
         ZStack {
             background
-
-            Group {
-                switch style {
-                case .classic:
-                    classicFace
-                case .orbit:
-                    orbitFace
-                case .horizon:
-                    horizonFace
-                case .focus:
-                    focusFace
-                case .zenith:
-                    zenithFace
-                }
-            }
-            .offset(driftOffset)
+            clockFace
+                .offset(driftOffset)
+                .opacity(0.8)
         }
         .onReceive(timer) { value in
             now = value
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.all)
-        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        .transition(.opacity)
     }
 
     private var timeText: String {
@@ -437,12 +550,8 @@ struct BigClockView : View {
             ZStack {
                 Color.black
 
-                if style != .classic {
-                    moodGradient
-                    centerWash
-                    artLineField
-                    notchEdgeShade
-                    verticalEdgeShade
+                if !backgroundStyle.isPureBlack {
+                    featheredBackground
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
@@ -450,302 +559,131 @@ struct BigClockView : View {
         .ignoresSafeArea()
     }
 
-    private var moodGradient: some View {
-        LinearGradient(colors: backgroundPalette,
-                       startPoint: .topLeading,
-                       endPoint: .bottomTrailing)
-            .opacity(0.78)
-    }
+    private var featheredBackground: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 20.0,
+                                paused: !animatedBackgroundEnabled)) { timeline in
+            GeometryReader { proxy in
+                let shortEdge = min(proxy.size.width, proxy.size.height)
+                let featherRadius = min(max(shortEdge * 0.018, 6), 10)
 
-    private var backgroundPalette: [Color] {
-        switch style {
-        case .classic:
-            [
-                Color(red: 0.02, green: 0.02, blue: 0.04),
-                Color(red: 0.12, green: 0.13, blue: 0.17),
-                Color.black
-            ]
-        case .orbit:
-            [
-                Color(red: 0.01, green: 0.02, blue: 0.08),
-                Color(red: 0.02, green: 0.21, blue: 0.24),
-                Color(red: 0.10, green: 0.18, blue: 0.43),
-                Color.black
-            ]
-        case .horizon:
-            [
-                Color(red: 0.04, green: 0.02, blue: 0.04),
-                Color(red: 0.30, green: 0.16, blue: 0.08),
-                Color(red: 0.03, green: 0.15, blue: 0.34),
-                Color.black
-            ]
-        case .focus:
-            [
-                Color(red: 0.01, green: 0.04, blue: 0.04),
-                Color(red: 0.02, green: 0.20, blue: 0.18),
-                Color(red: 0.24, green: 0.07, blue: 0.18),
-                Color.black
-            ]
-        case .zenith:
-            [
-                Color(red: 0.03, green: 0.02, blue: 0.09),
-                Color(red: 0.16, green: 0.08, blue: 0.30),
-                Color(red: 0.07, green: 0.06, blue: 0.35),
-                Color.black
-            ]
+                flowingBackground(at: timeline.date, size: proxy.size)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .mask {
+                        RoundedRectangle(
+                            cornerRadius: shortEdge * 0.1,
+                            style: .continuous
+                        )
+                        .fill(.white)
+                        .frame(width: proxy.size.width * CGFloat(backgroundWidthScale),
+                               height: proxy.size.height * CGFloat(backgroundHeightScale))
+                        .blur(radius: featherRadius)
+                    }
+            }
         }
     }
 
-    private var centerWash: some View {
-        LinearGradient(stops: [
-            .init(color: .clear, location: 0.00),
-            .init(color: style.secondary.opacity(0.18), location: 0.38),
-            .init(color: style.accent.opacity(0.16), location: 0.52),
-            .init(color: style.secondary.opacity(0.12), location: 0.66),
-            .init(color: .clear, location: 1.00)
-        ], startPoint: .leading, endPoint: .trailing)
-            .blur(radius: 28)
-            .opacity(0.72)
+    private func flowingBackground(at date: Date, size: CGSize) -> some View {
+        let colors = backgroundStyle.flowColors
+        let phase = flowPhase(at: date)
+        let glowCenter = flowPoint(phase: -phase * 0.82 + 1.7)
+        let glowRadius = max(size.width, size.height) * 0.58
+        let meshBlurRadius = min(size.width, size.height) * 0.03
+
+        return ZStack {
+            MeshGradient(width: 4,
+                         height: 3,
+                         points: meshPoints(phase: phase),
+                         colors: meshColors(colors),
+                         background: colors[0],
+                         smoothsColors: true,
+                         colorSpace: .perceptual)
+                .scaleEffect(1.12)
+                .blur(radius: meshBlurRadius)
+
+            RadialGradient(colors: [colors[2].opacity(0.72), .clear],
+                           center: glowCenter,
+                           startRadius: 0,
+                           endRadius: glowRadius)
+                .blendMode(.screen)
+        }
+        .saturation(1.08)
+        .contrast(1.04)
     }
 
-    private var artLineField: some View {
-        GeometryReader { proxy in
-            ZStack {
-                ForEach(0..<7, id: \.self) { index in
-                    Rectangle()
-                        .fill(style.secondary.opacity(index.isMultiple(of: 2) ? 0.08 : 0.04))
-                        .frame(width: proxy.size.width * 0.42, height: 1)
-                        .rotationEffect(.degrees(index.isMultiple(of: 2) ? -18 : 18))
-                        .offset(x: CGFloat(index - 3) * proxy.size.width * 0.16,
-                                y: CGFloat(index % 3 - 1) * proxy.size.height * 0.18)
-                }
+    private func flowPhase(at date: Date) -> Double {
+        let seedPhase = Double(visualSeed % 997) / 997.0 * .pi * 2
+        let duration = 10.0 + Double(visualSeed % 4) * 3.0
+        let direction = visualSeed.isMultiple(of: 2) ? 1.0 : -1.0
+        return date.timeIntervalSinceReferenceDate / duration * .pi * 2 * direction + seedPhase
+    }
 
-                ForEach(0..<5, id: \.self) { index in
-                    Rectangle()
-                        .fill(style.accent.opacity(0.05))
-                        .frame(width: 1, height: proxy.size.height * 0.56)
-                        .offset(x: CGFloat(index - 2) * proxy.size.width * 0.18)
+    private func meshPoints(phase: Double) -> [SIMD2<Float>] {
+        let seedOffset = Double(visualSeed % 37) * 0.17
+
+        return [
+            SIMD2(0.00, 0.00), SIMD2(0.33, 0.00), SIMD2(0.67, 0.00), SIMD2(1.00, 0.00),
+            SIMD2(0.00, 0.50),
+            meshPoint(x: 0.34 + sin(phase + seedOffset) * 0.10,
+                      y: 0.48 + cos(phase * 1.21 + 0.8) * 0.24),
+            meshPoint(x: 0.67 + cos(phase * 0.91 + seedOffset) * 0.10,
+                      y: 0.52 + sin(phase * 1.13 + 2.1) * 0.23),
+            SIMD2(1.00, 0.50),
+            SIMD2(0.00, 1.00), SIMD2(0.33, 1.00), SIMD2(0.67, 1.00), SIMD2(1.00, 1.00)
+        ]
+    }
+
+    private func meshPoint(x: Double, y: Double) -> SIMD2<Float> {
+        SIMD2(Float(x), Float(y))
+    }
+
+    private func meshColors(_ colors: [Color]) -> [Color] {
+        let offset = abs(visualSeed) % colors.count
+        let first = colors[offset]
+        let second = colors[(offset + 1) % colors.count]
+        let third = colors[(offset + 2) % colors.count]
+        let fourth = colors[(offset + 3) % colors.count]
+
+        return [
+            first, first, second, second,
+            first, third, third, second,
+            fourth, fourth, third, third
+        ]
+    }
+
+    private func flowPoint(phase: Double) -> UnitPoint {
+        UnitPoint(
+            x: CGFloat(0.5 + sin(phase) * 0.70),
+            y: CGFloat(0.5 + cos(phase * 0.83) * 0.60)
+        )
+    }
+
+    private var clockFace: some View {
+        GeometryReader { proxy in
+            let contentCenterY = proxy.size.height / 2 - (isCompact ? 20 : 28)
+
+            ZStack {
+                timeLabel(size: fontSize,
+                          weight: .bold,
+                          color: backgroundStyle.accent)
+                    .frame(width: proxy.size.width * 0.90)
+                    .shadow(color: Color.black.opacity(backgroundStyle.isPureBlack ? 0 : 0.28),
+                            radius: 12,
+                            x: 0,
+                            y: 4)
+                    .position(x: proxy.size.width / 2,
+                              y: contentCenterY)
+
+                if showDate {
+                    dateLabel(size: isCompact ? 24 : 30,
+                              color: backgroundStyle.secondary)
+                        .frame(width: proxy.size.width * 0.90)
+                        .position(x: proxy.size.width / 2,
+                                  y: contentCenterY + (isCompact ? 82 : 106))
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
-    }
-
-    private var notchEdgeShade: some View {
-        LinearGradient(stops: [
-            .init(color: Color.black.opacity(0.98), location: 0.00),
-            .init(color: Color.black.opacity(0.76), location: 0.07),
-            .init(color: Color.black.opacity(0.18), location: 0.18),
-            .init(color: .clear, location: 0.33),
-            .init(color: .clear, location: 0.67),
-            .init(color: Color.black.opacity(0.18), location: 0.82),
-            .init(color: Color.black.opacity(0.76), location: 0.93),
-            .init(color: Color.black.opacity(0.98), location: 1.00)
-        ], startPoint: .leading, endPoint: .trailing)
-    }
-
-    private var verticalEdgeShade: some View {
-        LinearGradient(stops: [
-            .init(color: Color.black.opacity(0.88), location: 0.00),
-            .init(color: Color.black.opacity(0.30), location: 0.14),
-            .init(color: .clear, location: 0.34),
-            .init(color: .clear, location: 0.66),
-            .init(color: Color.black.opacity(0.30), location: 0.86),
-            .init(color: Color.black.opacity(0.88), location: 1.00)
-        ], startPoint: .top, endPoint: .bottom)
-    }
-
-    private var classicFace: some View {
-        VStack(spacing: 12) {
-            timeLabel(size: fontSize, weight: .bold, color: style.accent)
-            if showDate {
-                dateLabel(size: 30, color: style.secondary)
-            }
-        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 32)
-    }
-
-    private var orbitFace: some View {
-        GeometryReader { proxy in
-            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-            let outerSize = min(proxy.size.width * 0.58, proxy.size.height * 0.78)
-            let innerSize = outerSize * 0.84
-
-            ZStack {
-                TimelineView(.animation) { timeline in
-                    orbitRings(innerSize: innerSize,
-                               outerSize: outerSize,
-                               rotation: orbitRotation(for: timeline.date))
-                }
-                .position(center)
-
-                VStack(spacing: 12) {
-                    timeLabel(size: fontSize * 0.84,
-                              weight: .heavy,
-                              color: style.accent)
-                    if showDate {
-                        dateLabel(size: 26, color: .white.opacity(0.80))
-                    }
-                }
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .position(center)
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func orbitRings(innerSize: CGFloat,
-                            outerSize: CGFloat,
-                            rotation: Double) -> some View {
-        ZStack {
-            Circle()
-                .stroke(style.accent.opacity(0.20), lineWidth: 2)
-                .frame(width: innerSize, height: innerSize)
-
-            Circle()
-                .stroke(style.secondary.opacity(0.12), lineWidth: 1)
-                .frame(width: outerSize, height: outerSize)
-
-            Circle()
-                .trim(from: 0.04, to: 0.32)
-                .stroke(style.accent.opacity(0.68),
-                        style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                .frame(width: outerSize, height: outerSize)
-                .rotationEffect(.degrees(rotation))
-
-            Circle()
-                .trim(from: 0.54, to: 0.82)
-                .stroke(style.secondary.opacity(0.52),
-                        style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                .frame(width: outerSize, height: outerSize)
-                .rotationEffect(.degrees(rotation))
-        }
-    }
-
-    private func orbitRotation(for date: Date) -> Double {
-        let components = Calendar.current.dateComponents([.second, .nanosecond], from: date)
-        let seconds = Double(components.second ?? 0)
-        let fractionalSecond = Double(components.nanosecond ?? 0) / 1_000_000_000
-        return (seconds + fractionalSecond) * 6
-    }
-
-    private var horizonFace: some View {
-        ZStack {
-            horizonGlowLine(width: isCompact ? 500 : 720)
-                .offset(y: horizonLineOffset)
-
-            VStack(spacing: 14) {
-                timeLabel(size: fontSize * 0.78, weight: .black, color: .white)
-
-                if showDate {
-                    dateLabel(size: isCompact ? 23 : 27, color: .white.opacity(0.78))
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 34)
-    }
-
-    private var horizonLineOffset: CGFloat {
-        if showDate {
-            isCompact ? 118 : 148
-        } else {
-            isCompact ? 82 : 102
-        }
-    }
-
-    private var focusFace: some View {
-        ZStack {
-            HStack(spacing: isCompact ? 260 : 360) {
-                focusDivider
-                focusDivider
-            }
-
-            VStack(spacing: 14) {
-                timeLabel(size: fontSize * 0.86, weight: .semibold, color: style.accent)
-                if showDate {
-                    dateLabel(size: isCompact ? 22 : 27, color: .white.opacity(0.72))
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 36)
-    }
-
-    private func horizonGlowLine(width: CGFloat) -> some View {
-        Rectangle()
-            .fill(LinearGradient(colors: [
-                .clear,
-                style.secondary.opacity(0.82),
-                style.accent.opacity(0.90),
-                style.secondary.opacity(0.82),
-                .clear
-            ], startPoint: .leading, endPoint: .trailing))
-            .frame(width: width, height: 3)
-            .blur(radius: 0.3)
-    }
-
-    private var focusDivider: some View {
-        Rectangle()
-            .fill(LinearGradient(colors: [
-                .clear,
-                style.secondary.opacity(0.42),
-                style.accent.opacity(0.62),
-                .clear
-            ], startPoint: .top, endPoint: .bottom))
-            .frame(width: 2, height: isCompact ? 130 : 176)
-    }
-
-    private var zenithFace: some View {
-        ZStack {
-            HStack(spacing: isCompact ? 38 : 64) {
-                zenithRail(height: isCompact ? 150 : 196, flipped: false)
-
-                VStack(spacing: 12) {
-                    timeLabel(size: fontSize * 0.82, weight: .heavy, color: style.accent)
-                        .shadow(color: style.secondary.opacity(0.36), radius: 18, x: 0, y: 0)
-
-                    if showDate {
-                        dateLabel(size: isCompact ? 23 : 28, color: .white.opacity(0.74))
-                    }
-                }
-                .frame(minWidth: isCompact ? 430 : 560)
-
-                zenithRail(height: isCompact ? 150 : 196, flipped: true)
-            }
-
-            Rectangle()
-                .fill(LinearGradient(colors: [
-                    .clear,
-                    style.secondary.opacity(0.42),
-                    .clear
-                ], startPoint: .leading, endPoint: .trailing))
-                .frame(width: isCompact ? 540 : 740, height: 2)
-                .offset(y: isCompact ? 74 : 98)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 38)
-    }
-
-    private func zenithRail(height: CGFloat, flipped: Bool) -> some View {
-        VStack(spacing: 9) {
-            ForEach(0..<5, id: \.self) { index in
-                Capsule()
-                    .fill(LinearGradient(colors: [
-                        style.secondary.opacity(0.15),
-                        style.accent.opacity(0.56),
-                        style.secondary.opacity(0.15)
-                    ], startPoint: .top, endPoint: .bottom))
-                    .frame(width: CGFloat(2 + index % 2), height: height / CGFloat(8 - index))
-            }
-        }
-        .frame(width: 22, height: height)
-        .scaleEffect(x: flipped ? -1 : 1, y: 1)
-        .opacity(0.92)
     }
 
     private func timeLabel(size: CGFloat, weight: Font.Weight, color: Color) -> some View {
