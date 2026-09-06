@@ -2,6 +2,7 @@ import SwiftUI
 import Combine
 import AVFoundation
 import UIKit
+import CoreText
 
 // MARK: - 根视图
 
@@ -26,10 +27,14 @@ struct StandbyMainView: View {
     @AppStorage("standby.presenceDetectionEnabled") private var presenceDetectionEnabled = true
     @AppStorage("standby.burnInProtectionEnabled") private var burnInProtectionEnabled = true
     @AppStorage("standby.autoRotateFaces") private var randomBackgroundEnabled = true
-    @AppStorage("standby.selectedFace") private var selectedBackgroundRawValue = StandbyBackgroundStyle.pureBlack.rawValue
+    @AppStorage("standby.selectedFace") private var selectedBackgroundRawValue = StandbyBackgroundStyle.seaMist.rawValue
     @AppStorage("standby.animatedBackgroundEnabled") private var animatedBackgroundEnabled = true
     @AppStorage("standby.backgroundWidthScale") private var backgroundWidthScale = 0.88
     @AppStorage("standby.backgroundHeightScale") private var backgroundHeightScale = 1.0
+    @AppStorage("standby.backgroundFlowSpeed") private var backgroundFlowSpeed = 1.0
+    @AppStorage("standby.backgroundContrast") private var backgroundContrast = 1.0
+    @AppStorage("standby.backgroundBrightness") private var backgroundBrightness = 1.0
+    @AppStorage("standby.backgroundFeather") private var backgroundFeather = 7.0
     @State private var offset = CGSize.zero
     @State private var offsetStep = 0
     @State private var isScreenOff = false      // 00:00-06:00 时间段黑屏
@@ -46,122 +51,133 @@ struct StandbyMainView: View {
         .autoconnect()
     
     var body: some View {
-        GeometryReader { proxy in
-            let totalWidth = proxy.size.width
-            let isCompact = totalWidth < 700
-            
-            ZStack {
-                // 根据时间 + 摄像头决定是否显示时间
-                Group {
-                    if isScreenOff || !isUserPresent {
-                        Color.black
-                            .accessibilityIdentifier("standbyHiddenDisplay")
-                    } else {
-                        BigClockView(fontSize: isCompact ? 120 : 160,
-                                     backgroundStyle: currentBackgroundStyle,
-                                     isCompact: isCompact,
-                                     visualSeed: randomBackgroundEnabled ? visualSeed : 0,
-                                     animatedBackgroundEnabled: animatedBackgroundEnabled,
-                                     backgroundWidthScale: backgroundWidthScale,
-                                     backgroundHeightScale: backgroundHeightScale,
-                                     driftOffset: burnInProtectionEnabled ? offset : .zero,
-                                     showSeconds: showSeconds,
-                                     showDate: showDate)
-                    }
-                }
-                .frame(maxWidth: .infinity,
-                       maxHeight: .infinity,
-                       alignment: .center)
-                .background(standbyBackground.ignoresSafeArea())
-                .onAppear {
-                    if StandbyBackgroundStyle(rawValue: selectedBackgroundRawValue) == nil {
-                        selectedBackgroundRawValue = StandbyBackgroundStyle.pureBlack.rawValue
-                    }
-                    updateScreenOff()
-                    setIdleTimerDisabled(true)
-                }
-                .onDisappear {
-                    setIdleTimerDisabled(false)
-                }
-                .onChange(of: scenePhase) { _, phase in
-                    setIdleTimerDisabled(phase == .active)
-                }
-                .onReceive(driftTimer) { _ in
-                    updateScreenOff() // 时间段判断
-                    guard burnInProtectionEnabled else {
-                        offset = .zero
-                        return
-                    }
+        ZStack {
+            GeometryReader { proxy in
+                let totalWidth = proxy.size.width
+                let isCompact = totalWidth < 700
 
-                    offsetStep = (offsetStep + 1) % 4
-                    withAnimation(.easeInOut(duration: 1)) {
-                        switch offsetStep {
-                        case 0: offset = .zero
-                        case 1: offset = CGSize(width: 8, height: 4)
-                        case 2: offset = CGSize(width: -6, height: -5)
-                        case 3: offset = CGSize(width: 4, height: -6)
-                        default: offset = .zero
+                ZStack {
+                    // 根据时间 + 摄像头决定是否显示时间
+                    Group {
+                        if (isScreenOff || !isUserPresent) && !isShowingSettings {
+                            Color.black
+                                .accessibilityIdentifier("standbyHiddenDisplay")
+                        } else {
+                            BigClockView(fontSize: isCompact ? 120 : 160,
+                                         backgroundStyle: currentBackgroundStyle,
+                                         isCompact: isCompact,
+                                         visualSeed: randomBackgroundEnabled ? visualSeed : 0,
+                                         animatedBackgroundEnabled: animatedBackgroundEnabled,
+                                         backgroundWidthScale: backgroundWidthScale,
+                                         backgroundHeightScale: backgroundHeightScale,
+                                         backgroundFlowSpeed: backgroundFlowSpeed,
+                                         backgroundContrast: backgroundContrast,
+                                         backgroundBrightness: backgroundBrightness,
+                                         backgroundFeather: backgroundFeather,
+                                         driftOffset: burnInProtectionEnabled ? offset : .zero,
+                                         showSeconds: showSeconds,
+                                         showDate: showDate)
                         }
                     }
-                }
-                .onChange(of: nightHideEnabled) { _, _ in
-                    updateScreenOff()
-                }
-                .onChange(of: presenceDetectionEnabled) { _, enabled in
-                    if !enabled {
-                        isUserPresent = true
-                    }
-                }
-                .onChange(of: burnInProtectionEnabled) { _, enabled in
-                    if !enabled {
-                        offset = .zero
-                    }
-                }
-                .onChange(of: randomBackgroundEnabled) { _, enabled in
-                    if enabled {
-                        randomizeVisual()
-                    }
-                }
-
-                if presenceDetectionEnabled {
-                    // 隐藏的前置摄像头检测视图（只负责更新 isUserPresent）
-                    CameraPresenceView(isUserPresent: Binding(
-                        get: { isUserPresent },
-                        set: { present in
-                            updateUserPresence(present)
+                    .frame(maxWidth: .infinity,
+                           maxHeight: .infinity,
+                           alignment: .center)
+                    .background(standbyBackground.ignoresSafeArea())
+                    .onAppear {
+                        if StandbyBackgroundStyle(rawValue: selectedBackgroundRawValue) == nil {
+                            selectedBackgroundRawValue = StandbyBackgroundStyle.seaMist.rawValue
                         }
-                    ))
-                        .frame(width: 1, height: 1)
-                        .opacity(0.001)   // 几乎不可见，只用于驱动摄像头
-                        .accessibilityHidden(true)
-                }
+                        updateScreenOff()
+                        setIdleTimerDisabled(true)
+                    }
+                    .onDisappear {
+                        setIdleTimerDisabled(false)
+                    }
+                    .onChange(of: scenePhase) { _, phase in
+                        setIdleTimerDisabled(phase == .active)
+                    }
+                    .onReceive(driftTimer) { _ in
+                        updateScreenOff() // 时间段判断
+                        guard burnInProtectionEnabled else {
+                            offset = .zero
+                            return
+                        }
 
-                if isShowingSettings {
-                    StandbySettingsPanel(isPresented: $isShowingSettings,
-                                         showSeconds: $showSeconds,
-                                         showDate: $showDate,
-                                         nightHideEnabled: $nightHideEnabled,
-                                         presenceDetectionEnabled: $presenceDetectionEnabled,
-                                         burnInProtectionEnabled: $burnInProtectionEnabled,
-                                         randomBackgroundEnabled: $randomBackgroundEnabled,
-                                         animatedBackgroundEnabled: $animatedBackgroundEnabled,
-                                         selectedBackgroundRawValue: $selectedBackgroundRawValue,
-                                         backgroundWidthScale: $backgroundWidthScale,
-                                         backgroundHeightScale: $backgroundHeightScale)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                        .zIndex(1)
+                        offsetStep = (offsetStep + 1) % 4
+                        withAnimation(.easeInOut(duration: 1)) {
+                            switch offsetStep {
+                            case 0: offset = .zero
+                            case 1: offset = CGSize(width: 8, height: 4)
+                            case 2: offset = CGSize(width: -6, height: -5)
+                            case 3: offset = CGSize(width: 4, height: -6)
+                            default: offset = .zero
+                            }
+                        }
+                    }
+                    .onChange(of: nightHideEnabled) { _, _ in
+                        updateScreenOff()
+                    }
+                    .onChange(of: presenceDetectionEnabled) { _, enabled in
+                        if !enabled {
+                            isUserPresent = true
+                        }
+                    }
+                    .onChange(of: burnInProtectionEnabled) { _, enabled in
+                        if !enabled {
+                            offset = .zero
+                        }
+                    }
+                    .onChange(of: randomBackgroundEnabled) { _, enabled in
+                        if enabled {
+                            randomizeVisual()
+                        }
+                    }
+
+                    if presenceDetectionEnabled {
+                        // 隐藏的前置摄像头检测视图（只负责更新 isUserPresent）
+                        CameraPresenceView(isUserPresent: Binding(
+                            get: { isUserPresent },
+                            set: { present in
+                                updateUserPresence(present)
+                            }
+                        ))
+                            .frame(width: 1, height: 1)
+                            .opacity(0.001)   // 几乎不可见，只用于驱动摄像头
+                            .accessibilityHidden(true)
+                    }
+
                 }
+                .contentShape(Rectangle())
+                .gesture(settingsSwipeGesture)
+                .animation(.easeInOut(duration: 0.25), value: isShowingSettings)
             }
-            .contentShape(Rectangle())
-            .gesture(settingsSwipeGesture)
-            .animation(.easeInOut(duration: 0.25), value: isShowingSettings)
+            .ignoresSafeArea(.all)
+            if isShowingSettings {
+                StandbySettingsPanel(isPresented: $isShowingSettings,
+                                     showSeconds: $showSeconds,
+                                     showDate: $showDate,
+                                     nightHideEnabled: $nightHideEnabled,
+                                     presenceDetectionEnabled: $presenceDetectionEnabled,
+                                     burnInProtectionEnabled: $burnInProtectionEnabled,
+                                     randomBackgroundEnabled: $randomBackgroundEnabled,
+                                     animatedBackgroundEnabled: $animatedBackgroundEnabled,
+                                     selectedBackgroundRawValue: $selectedBackgroundRawValue,
+                                     backgroundWidthScale: $backgroundWidthScale,
+                                     backgroundHeightScale: $backgroundHeightScale,
+                                     backgroundFlowSpeed: $backgroundFlowSpeed,
+                                     backgroundContrast: $backgroundContrast,
+                                     backgroundBrightness: $backgroundBrightness,
+                                     backgroundFeather: $backgroundFeather)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(1)
+            }
         }
-        .ignoresSafeArea(.all)
+        .animation(.easeInOut(duration: 0.25), value: isShowingSettings)
     }
     
     private var currentBackgroundStyle: StandbyBackgroundStyle {
         if !randomBackgroundEnabled {
-            return StandbyBackgroundStyle(rawValue: selectedBackgroundRawValue) ?? .pureBlack
+            return StandbyBackgroundStyle(rawValue: selectedBackgroundRawValue) ?? .seaMist
         }
 
         let styles = StandbyBackgroundStyle.allCases
@@ -221,9 +237,26 @@ struct StandbySettingsPanel: View {
     @Binding var selectedBackgroundRawValue: String
     @Binding var backgroundWidthScale: Double
     @Binding var backgroundHeightScale: Double
+    @Binding var backgroundFlowSpeed: Double
+    @Binding var backgroundContrast: Double
+    @Binding var backgroundBrightness: Double
+    @Binding var backgroundFeather: Double
+
+    private struct Adjustment {
+        let title: String
+        let value: Binding<Double>
+        let range: ClosedRange<Double>
+        let step: Double
+        let percent: Bool
+    }
+
+    @State private var activeAdjustment: Adjustment?
+    @State private var isOriginalDrag = false
+    @State private var restoreTask: Task<Void, Never>?
 
     var body: some View {
         GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
             VStack {
                 Spacer()
 
@@ -233,6 +266,11 @@ struct StandbySettingsPanel: View {
                             .fill(.white.opacity(0.28))
                             .frame(width: 42, height: 5)
                             .padding(.top, 10)
+                            .padding(.horizontal, 40)
+                            .contentShape(Rectangle())
+                            .gesture(DragGesture().onEnded { value in
+                                if value.translation.height > 48 { isPresented = false }
+                            })
 
                         HStack {
                             Text("设置")
@@ -291,19 +329,35 @@ struct StandbySettingsPanel: View {
                             dimensionSlider(title: "高度", value: $backgroundHeightScale)
                         }
 
-                        HStack {
-                            Label("亮度", systemImage: "sun.max.fill")
-                            Spacer()
-                            Text("跟随系统")
-                                .foregroundStyle(.white.opacity(0.65))
+                        backgroundSlider(title: "流动速度", value: $backgroundFlowSpeed,
+                                         range: 0.25...2.0)
+                            .disabled(!animatedBackgroundEnabled)
+                        backgroundSlider(title: "背景对比度", value: $backgroundContrast,
+                                         range: 0.5...1.5)
+                        backgroundSlider(title: "背景亮度", value: $backgroundBrightness,
+                                         range: 0.3...1.5)
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Label("边缘羽化", systemImage: "drop.halffull")
+                                Spacer()
+                                Text("\(Int(backgroundFeather))")
+                                    .monospacedDigit()
+                            }
+                            Slider(value: $backgroundFeather, in: 0...40, step: 1,
+                                   onEditingChanged: { editing in
+                                       editAdjustment(editing, adjustment: Adjustment(
+                                           title: "边缘羽化", value: $backgroundFeather,
+                                           range: 0...40, step: 1, percent: false))
+                                   })
+                                .accessibilityLabel("边缘羽化")
                         }
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.72))
                     }
                     .padding(.horizontal, 22)
                     .padding(.bottom, 22)
                 }
-                .frame(maxHeight: max(260, proxy.size.height * 0.86))
+                .frame(maxHeight: max(0, proxy.size.height - 36))
                 .foregroundStyle(.white)
                 .background(.ultraThinMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -314,17 +368,82 @@ struct StandbySettingsPanel: View {
                 .padding(.horizontal, 18)
                 .padding(.bottom, 18)
             }
-        }
-        .background(Color.black.opacity(0.32).ignoresSafeArea())
-        .gesture(
-            DragGesture(minimumDistance: 30)
-                .onEnded { value in
-                    if value.translation.height > 48 {
-                        isPresented = false
+            // Keep the original slider mounted until its drag finishes.
+            .opacity(activeAdjustment == nil ? 1 : 0.001)
+            .allowsHitTesting(activeAdjustment == nil || isOriginalDrag)
+            .accessibilityHidden(activeAdjustment != nil)
+
+            if let adjustment = activeAdjustment {
+                VStack(spacing: 8) {
+                    HStack {
+                        Text(adjustment.title)
+                        Spacer()
+                        Text(adjustment.percent
+                             ? "\(Int((adjustment.value.wrappedValue * 100).rounded()))%"
+                             : "\(Int(adjustment.value.wrappedValue))")
+                            .monospacedDigit()
                     }
+                    Slider(value: adjustment.value, in: adjustment.range, step: adjustment.step,
+                           onEditingChanged: { editing in
+                               editAdjustment(editing, adjustment: adjustment, fromPreview: true)
+                           })
+                        .accessibilityLabel(adjustment.title)
                 }
-        )
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .padding(16)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 18)
+                .padding(.bottom, 18)
+                .allowsHitTesting(!isOriginalDrag)
+                .accessibilityIdentifier("standbyAdjustmentPreview")
+            }
+            }
+        }
+        .background(Color.black.opacity(activeAdjustment == nil ? 0.32 : 0).ignoresSafeArea())
+        .onDisappear {
+            restoreTask?.cancel()
+        }
         .accessibilityIdentifier("standbySettingsPanel")
+    }
+
+    private func editAdjustment(_ editing: Bool, adjustment: Adjustment,
+                                fromPreview: Bool = false) {
+        restoreTask?.cancel()
+        if editing {
+            isOriginalDrag = !fromPreview
+            activeAdjustment = adjustment
+        } else {
+            isOriginalDrag = false
+            restoreTask = Task { @MainActor in
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch {
+                    return
+                }
+                activeAdjustment = nil
+            }
+        }
+    }
+
+    private func backgroundSlider(title: String, value: Binding<Double>,
+                                  range: ClosedRange<Double>) -> some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text("\(Int((value.wrappedValue * 100).rounded()))%")
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+            Slider(value: value, in: range, step: 0.05,
+                   onEditingChanged: { editing in
+                       editAdjustment(editing, adjustment: Adjustment(
+                           title: title, value: value, range: range, step: 0.05, percent: true))
+                   })
+                .accessibilityLabel(title)
+        }
+        .font(.system(size: 15, weight: .semibold, design: .rounded))
     }
 
     private func dimensionSlider(title: String,
@@ -339,7 +458,12 @@ struct StandbySettingsPanel: View {
             }
             .font(.system(size: 14, design: .rounded))
 
-            Slider(value: value, in: 0.70...1.0, step: 0.01)
+            Slider(value: value, in: 0.70...1.0, step: 0.01,
+                   onEditingChanged: { editing in
+                       editAdjustment(editing, adjustment: Adjustment(
+                           title: "背景\(title)", value: value, range: 0.70...1.0,
+                           step: 0.01, percent: true))
+                   })
                 .accessibilityLabel("背景\(title)")
         }
     }
@@ -364,7 +488,6 @@ struct StandbySettingsPanel: View {
 // MARK: - 大号时钟（带秒）
 
 enum StandbyBackgroundStyle: String, CaseIterable, Identifiable {
-    case pureBlack = "classic"
     case seaMist
     case spring
     case clearSky
@@ -387,7 +510,6 @@ enum StandbyBackgroundStyle: String, CaseIterable, Identifiable {
 
     var name: String {
         switch self {
-        case .pureBlack: "纯黑"
         case .seaMist: "海雾"
         case .spring: "春绿"
         case .clearSky: "晴空"
@@ -400,7 +522,6 @@ enum StandbyBackgroundStyle: String, CaseIterable, Identifiable {
 
     var accent: Color {
         switch self {
-        case .pureBlack: .white
         case .seaMist: Color(red: 0.82, green: 0.98, blue: 0.93)
         case .spring: Color(red: 0.88, green: 1.00, blue: 0.78)
         case .clearSky: Color(red: 0.82, green: 0.95, blue: 1.00)
@@ -413,7 +534,7 @@ enum StandbyBackgroundStyle: String, CaseIterable, Identifiable {
 
     var secondary: Color {
         switch self {
-        case .pureBlack, .graphite: Color.white.opacity(0.72)
+        case .graphite: Color.white.opacity(0.72)
         case .seaMist: Color(red: 0.66, green: 0.88, blue: 0.86)
         case .spring: Color(red: 0.67, green: 0.88, blue: 0.67)
         case .clearSky: Color(red: 0.66, green: 0.84, blue: 0.94)
@@ -425,8 +546,6 @@ enum StandbyBackgroundStyle: String, CaseIterable, Identifiable {
 
     var flowColors: [Color] {
         switch self {
-        case .pureBlack:
-            [.black, .black, .black, .black]
         case .seaMist:
             [
                 Color(red: 0.02, green: 0.18, blue: 0.30),
@@ -457,10 +576,10 @@ enum StandbyBackgroundStyle: String, CaseIterable, Identifiable {
             ]
         case .deepForest:
             [
-                Color(red: 0.01, green: 0.10, blue: 0.11),
-                Color(red: 0.03, green: 0.32, blue: 0.23),
-                Color(red: 0.22, green: 0.53, blue: 0.26),
-                Color(red: 0.08, green: 0.25, blue: 0.39)
+                Color(red: 0.02, green: 0.17, blue: 0.20),
+                Color(red: 0.04, green: 0.42, blue: 0.30),
+                Color(red: 0.34, green: 0.66, blue: 0.39),
+                Color(red: 0.07, green: 0.37, blue: 0.56)
             ]
         case .ocean:
             [
@@ -479,23 +598,28 @@ enum StandbyBackgroundStyle: String, CaseIterable, Identifiable {
         }
     }
 
-    var isPureBlack: Bool { self == .pureBlack }
 
 }
 
 struct BigClockView : View {
     var fontSize: CGFloat = 140
-    var backgroundStyle: StandbyBackgroundStyle = .pureBlack
+    var backgroundStyle: StandbyBackgroundStyle = .seaMist
     var isCompact: Bool = false
     var visualSeed: Int = 0
     var animatedBackgroundEnabled: Bool = true
     var backgroundWidthScale: Double = 0.88
     var backgroundHeightScale: Double = 1.0
+    var backgroundFlowSpeed: Double = 1.0
+    var backgroundContrast: Double = 1.0
+    var backgroundBrightness: Double = 1.0
+    var backgroundFeather: Double = 7.0
     var driftOffset: CGSize = .zero
     var showSeconds: Bool = true
     var showDate: Bool = true
     
     @State private var now = Date()
+    @State private var flowAnchor = Date()
+    @State private var flowElapsed = 0.0
     private let timer = Timer
         .publish(every: 1, on: .main, in: .common)
         .autoconnect()
@@ -531,6 +655,12 @@ struct BigClockView : View {
         .onReceive(timer) { value in
             now = value
         }
+        .onChange(of: backgroundFlowSpeed) { oldSpeed, _ in
+            updateFlowAnchor(speed: oldSpeed, running: animatedBackgroundEnabled)
+        }
+        .onChange(of: animatedBackgroundEnabled) { wasRunning, _ in
+            updateFlowAnchor(speed: backgroundFlowSpeed, running: wasRunning)
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.all)
         .transition(.opacity)
@@ -550,8 +680,32 @@ struct BigClockView : View {
             ZStack {
                 Color.black
 
-                if !backgroundStyle.isPureBlack {
+                Group {
                     featheredBackground
+                        .overlay {
+                            Color.black.opacity(0.25)
+                                .mask {
+                                    Rectangle()
+                                        .fill(.white)
+                                        .overlay {
+                                            // A broad feather avoids refracting a hard glyph-shaped boundary.
+                                            RoundedRectangle(cornerRadius: fontSize * 0.45)
+                                                .fill(.white)
+                                                .frame(width: proxy.size.width * 0.94,
+                                                       height: fontSize * 1.35)
+                                                .blur(radius: fontSize * 0.24)
+                                                .position(
+                                                    x: proxy.size.width / 2,
+                                                    y: proxy.size.height / 2 - (isCompact ? 20 : 28)
+                                                )
+                                                .offset(driftOffset)
+                                                .blendMode(.destinationOut)
+                                        }
+                                        .compositingGroup()
+                                }
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
@@ -564,7 +718,7 @@ struct BigClockView : View {
                                 paused: !animatedBackgroundEnabled)) { timeline in
             GeometryReader { proxy in
                 let shortEdge = min(proxy.size.width, proxy.size.height)
-                let featherRadius = min(max(shortEdge * 0.018, 6), 10)
+                let featherRadius = min(max(backgroundFeather, 0), 40)
 
                 flowingBackground(at: timeline.date, size: proxy.size)
                     .frame(width: proxy.size.width, height: proxy.size.height)
@@ -606,15 +760,27 @@ struct BigClockView : View {
                            endRadius: glowRadius)
                 .blendMode(.screen)
         }
-        .saturation(1.08)
-        .contrast(1.04)
+        .saturation(1.14)
+        .contrast(backgroundContrast)
+        .colorMultiply(Color(white: min(backgroundBrightness, 1)))
+        .brightness(max(0, backgroundBrightness - 1) * 0.3)
+    }
+
+    private func updateFlowAnchor(speed: Double, running: Bool) {
+        let date = Date()
+        if running {
+            flowElapsed += date.timeIntervalSince(flowAnchor) * speed
+        }
+        flowAnchor = date
     }
 
     private func flowPhase(at date: Date) -> Double {
         let seedPhase = Double(visualSeed % 997) / 997.0 * .pi * 2
         let duration = 10.0 + Double(visualSeed % 4) * 3.0
         let direction = visualSeed.isMultiple(of: 2) ? 1.0 : -1.0
-        return date.timeIntervalSinceReferenceDate / duration * .pi * 2 * direction + seedPhase
+        let elapsed = flowElapsed + (animatedBackgroundEnabled
+            ? date.timeIntervalSince(flowAnchor) * backgroundFlowSpeed : 0)
+        return elapsed / duration * .pi * 2 * direction + seedPhase
     }
 
     private func meshPoints(phase: Double) -> [SIMD2<Float>] {
@@ -645,7 +811,7 @@ struct BigClockView : View {
 
         return [
             first, first, second, second,
-            first, third, third, second,
+            first, fourth, third, second,
             fourth, fourth, third, third
         ]
     }
@@ -662,11 +828,10 @@ struct BigClockView : View {
             let contentCenterY = proxy.size.height / 2 - (isCompact ? 20 : 28)
 
             ZStack {
-                timeLabel(size: fontSize,
-                          weight: .bold,
-                          color: backgroundStyle.accent)
+                frostedTimeLabel(size: fontSize,
+                                     weight: UIFont.Weight.bold.rawValue)
                     .frame(width: proxy.size.width * 0.90)
-                    .shadow(color: Color.black.opacity(backgroundStyle.isPureBlack ? 0 : 0.28),
+                    .shadow(color: Color.black.opacity(0.28),
                             radius: 12,
                             x: 0,
                             y: 4)
@@ -678,24 +843,43 @@ struct BigClockView : View {
                               color: backgroundStyle.secondary)
                         .frame(width: proxy.size.width * 0.90)
                         .position(x: proxy.size.width / 2,
-                                  y: contentCenterY + (isCompact ? 82 : 106))
+                                  y: contentCenterY + (isCompact ? 92 : 118))
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+    private func frostedTimeLabel(size: CGFloat,
+                                  weight: CGFloat) -> some View {
+        let outline = ClockNumeralShape(text: timeText, fontSize: size, weight: UIFont.Weight.bold.rawValue)
 
-    private func timeLabel(size: CGFloat, weight: Font.Weight, color: Color) -> some View {
+        return numeralGlyph(size: size, weight: weight)
+            .hidden()
+            .overlay {
+                outline.fill(.thinMaterial)
+                    .overlay {
+                        outline.fill(
+                            LinearGradient(
+                                colors: [.white.opacity(0.78), .white.opacity(0.62)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                    }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(timeText)
+            .accessibilityIdentifier("standbyClockTime")
+    }
+
+    private func numeralGlyph(size: CGFloat,
+                              weight: CGFloat) -> some View {
         Text(timeText)
-            .font(.system(size: size,
-                          weight: weight,
-                          design: .rounded))
+            .font(Font(ClockNumeralShape.font(size: size, weight: weight)))
             .monospacedDigit()
             .minimumScaleFactor(0.45)
             .lineLimit(1)
-            .foregroundColor(color)
-            .accessibilityIdentifier("standbyClockTime")
     }
 
     private func dateLabel(size: CGFloat, color: Color) -> some View {
@@ -708,6 +892,53 @@ struct BigClockView : View {
             .minimumScaleFactor(0.65)
             .lineLimit(1)
             .accessibilityIdentifier("standbyClockDate")
+    }
+}
+
+private struct ClockNumeralShape: Shape {
+    let outline: Path
+
+    init(text: String, fontSize: CGFloat, weight: CGFloat) {
+        let font = Self.font(size: fontSize, weight: weight)
+        let line = CTLineCreateWithAttributedString(
+            NSAttributedString(string: text, attributes: [.font: font])
+        )
+        let path = CGMutablePath()
+        for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+            let count = CTRunGetGlyphCount(run)
+            var glyphs = [CGGlyph](repeating: 0, count: count)
+            var positions = [CGPoint](repeating: .zero, count: count)
+            CTRunGetGlyphs(run, CFRange(location: 0, length: 0), &glyphs)
+            CTRunGetPositions(run, CFRange(location: 0, length: 0), &positions)
+            let attributes = CTRunGetAttributes(run) as NSDictionary
+            let runFont = attributes[kCTFontAttributeName] as! CTFont
+            for index in glyphs.indices {
+                if let glyph = CTFontCreatePathForGlyph(runFont, glyphs[index], nil) {
+                    path.addPath(glyph, transform: CGAffineTransform(
+                        translationX: positions[index].x, y: positions[index].y
+                    ))
+                }
+            }
+        }
+        outline = Path(path)
+    }
+
+    static func font(size: CGFloat, weight: CGFloat) -> UIFont {
+        let base = UIFont.monospacedDigitSystemFont(ofSize: size, weight: UIFont.Weight(rawValue: weight))
+        let descriptor = base.fontDescriptor.withDesign(.rounded) ?? base.fontDescriptor
+        return UIFont(descriptor: descriptor, size: size)
+    }
+
+    nonisolated func path(in rect: CGRect) -> Path {
+        let bounds = outline.boundingRect
+        guard bounds.width > 0, bounds.height > 0 else { return Path() }
+        let scale = min(1, rect.width / bounds.width, rect.height / bounds.height)
+        // Core Text uses an upward Y axis; center the visible glyph bounds.
+        return outline.applying(CGAffineTransform(
+            a: scale, b: 0, c: 0, d: -scale,
+            tx: rect.midX - bounds.midX * scale,
+            ty: rect.midY + bounds.midY * scale
+        ))
     }
 }
 
