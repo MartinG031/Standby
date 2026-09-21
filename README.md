@@ -5,7 +5,9 @@ Standby is a dark, landscape-first iOS clock app for a spare device on a desk or
 ## Highlights
 
 - Large `HH:mm:ss` SwiftUI clock with Chinese date and weekday.
-- Random backgrounds with pure black and fluid, Apple Music-inspired mesh color options.
+- Seven fluid, Apple Music-inspired mesh palettes with continuous shuffled color playback.
+- Palettes blend perceptually over 24 seconds at default speed, visiting every palette before reshuffling without consecutive repeats.
+- Color playback is enabled by default; disable it to keep the selected palette. Flow speed controls both mesh movement and color transitions. Pausing flow freezes the current blend; Reduce Motion and inactive scenes pause it too.
 - Face-detection wake behavior: each return from absent to present picks a different palette, flow direction, speed, and phase.
 - Feathered rounded color fields sit inside a black perimeter for landscape notch concealment.
 - Gradient color relationships are inspired by [CoolHue 2.0](https://webkul.github.io/coolhue/) and tuned darker for bedside use.

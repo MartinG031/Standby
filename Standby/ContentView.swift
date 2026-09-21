@@ -29,6 +29,7 @@ struct StandbyMainView: View {
     @AppStorage("standby.autoRotateFaces") private var randomBackgroundEnabled = true
     @AppStorage("standby.selectedFace") private var selectedBackgroundRawValue = StandbyBackgroundStyle.seaMist.rawValue
     @AppStorage("standby.animatedBackgroundEnabled") private var animatedBackgroundEnabled = true
+    @AppStorage("standby.colorPlaybackEnabled") private var colorPlaybackEnabled = true
     @AppStorage("standby.backgroundWidthScale") private var backgroundWidthScale = 0.88
     @AppStorage("standby.backgroundHeightScale") private var backgroundHeightScale = 1.0
     @AppStorage("standby.backgroundFlowSpeed") private var backgroundFlowSpeed = 1.0
@@ -68,6 +69,7 @@ struct StandbyMainView: View {
                                          isCompact: isCompact,
                                          visualSeed: randomBackgroundEnabled ? visualSeed : 0,
                                          animatedBackgroundEnabled: animatedBackgroundEnabled,
+                                         colorPlaybackEnabled: colorPlaybackEnabled,
                                          backgroundWidthScale: backgroundWidthScale,
                                          backgroundHeightScale: backgroundHeightScale,
                                          backgroundFlowSpeed: backgroundFlowSpeed,
@@ -161,6 +163,7 @@ struct StandbyMainView: View {
                                      burnInProtectionEnabled: $burnInProtectionEnabled,
                                      randomBackgroundEnabled: $randomBackgroundEnabled,
                                      animatedBackgroundEnabled: $animatedBackgroundEnabled,
+                                     colorPlaybackEnabled: $colorPlaybackEnabled,
                                      selectedBackgroundRawValue: $selectedBackgroundRawValue,
                                      backgroundWidthScale: $backgroundWidthScale,
                                      backgroundHeightScale: $backgroundHeightScale,
@@ -234,6 +237,7 @@ struct StandbySettingsPanel: View {
     @Binding var burnInProtectionEnabled: Bool
     @Binding var randomBackgroundEnabled: Bool
     @Binding var animatedBackgroundEnabled: Bool
+    @Binding var colorPlaybackEnabled: Bool
     @Binding var selectedBackgroundRawValue: String
     @Binding var backgroundWidthScale: Double
     @Binding var backgroundHeightScale: Double
@@ -297,12 +301,13 @@ struct StandbySettingsPanel: View {
                             settingToggle(title: "夜间隐藏", systemImage: "moon.fill", isOn: $nightHideEnabled)
                             settingToggle(title: "人脸点亮", systemImage: "faceid", isOn: $presenceDetectionEnabled)
                             settingToggle(title: "人脸随机背景", systemImage: "shuffle", isOn: $randomBackgroundEnabled)
+                            settingToggle(title: "配色轮播", systemImage: "repeat", isOn: $colorPlaybackEnabled)
                             settingToggle(title: "防烧屏漂移", systemImage: "arrow.up.left.and.arrow.down.right", isOn: $burnInProtectionEnabled)
                         }
 
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
-                                Label("固定背景", systemImage: "paintpalette.fill")
+                                Label(colorPlaybackEnabled ? "起始配色" : "固定背景", systemImage: "paintpalette.fill")
                                 Spacer()
                                 Toggle("流动", isOn: $animatedBackgroundEnabled)
                                     .fixedSize()
@@ -310,7 +315,7 @@ struct StandbySettingsPanel: View {
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
                             .foregroundStyle(.white.opacity(0.72))
 
-                            Picker("固定背景", selection: $selectedBackgroundRawValue) {
+                            Picker(colorPlaybackEnabled ? "起始配色" : "固定背景", selection: $selectedBackgroundRawValue) {
                                 ForEach(StandbyBackgroundStyle.allCases) { style in
                                     Text(style.name).tag(style.rawValue)
                                 }
@@ -602,11 +607,14 @@ enum StandbyBackgroundStyle: String, CaseIterable, Identifiable {
 }
 
 struct BigClockView : View {
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var fontSize: CGFloat = 140
     var backgroundStyle: StandbyBackgroundStyle = .seaMist
     var isCompact: Bool = false
     var visualSeed: Int = 0
     var animatedBackgroundEnabled: Bool = true
+    var colorPlaybackEnabled: Bool = true
     var backgroundWidthScale: Double = 0.88
     var backgroundHeightScale: Double = 1.0
     var backgroundFlowSpeed: Double = 1.0
@@ -620,6 +628,7 @@ struct BigClockView : View {
     @State private var now = Date()
     @State private var flowAnchor = Date()
     @State private var flowElapsed = 0.0
+    @State private var palettePlayback: StandbyPalettePlayback?
     private let timer = Timer
         .publish(every: 1, on: .main, in: .common)
         .autoconnect()
@@ -654,11 +663,23 @@ struct BigClockView : View {
         }
         .onReceive(timer) { value in
             now = value
+            if colorPlaybackEnabled {
+                palettePlayback?.advance(to: flowTime(at: value))
+            }
+        }
+        .onAppear {
+            restartPalettePlayback()
+        }
+        .onChange(of: backgroundStyle) { _, _ in
+            restartPalettePlayback()
+        }
+        .onChange(of: colorPlaybackEnabled) { _, _ in
+            restartPalettePlayback()
         }
         .onChange(of: backgroundFlowSpeed) { oldSpeed, _ in
-            updateFlowAnchor(speed: oldSpeed, running: animatedBackgroundEnabled)
+            updateFlowAnchor(speed: oldSpeed, running: isFlowRunning)
         }
-        .onChange(of: animatedBackgroundEnabled) { wasRunning, _ in
+        .onChange(of: isFlowRunning) { wasRunning, _ in
             updateFlowAnchor(speed: backgroundFlowSpeed, running: wasRunning)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -715,7 +736,7 @@ struct BigClockView : View {
 
     private var featheredBackground: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 20.0,
-                                paused: !animatedBackgroundEnabled)) { timeline in
+                                paused: !isFlowRunning)) { timeline in
             GeometryReader { proxy in
                 let shortEdge = min(proxy.size.width, proxy.size.height)
                 let featherRadius = min(max(backgroundFeather, 0), 40)
@@ -737,7 +758,7 @@ struct BigClockView : View {
     }
 
     private func flowingBackground(at date: Date, size: CGSize) -> some View {
-        let colors = backgroundStyle.flowColors
+        let colors = blendedColors(at: date)
         let phase = flowPhase(at: date)
         let glowCenter = flowPoint(phase: -phase * 0.82 + 1.7)
         let glowRadius = max(size.width, size.height) * 0.58
@@ -766,6 +787,30 @@ struct BigClockView : View {
         .brightness(max(0, backgroundBrightness - 1) * 0.3)
     }
 
+    private var isFlowRunning: Bool {
+        animatedBackgroundEnabled && !reduceMotion && scenePhase == .active
+    }
+
+    private func flowTime(at date: Date) -> TimeInterval {
+        flowElapsed + (isFlowRunning ? max(0, date.timeIntervalSince(flowAnchor)) * backgroundFlowSpeed : 0)
+    }
+
+    private func restartPalettePlayback() {
+        palettePlayback = StandbyPalettePlayback(startingWith: backgroundStyle, at: flowTime(at: Date()))
+    }
+
+    private func blendedColors(at date: Date) -> [Color] {
+        guard colorPlaybackEnabled, let playback = palettePlayback else {
+            return backgroundStyle.flowColors
+        }
+        let elapsed = flowTime(at: date)
+        // Clamp to the destination until the clock tick advances the shuffled queue.
+        let blend = playback.blend(at: elapsed)
+        return zip(playback.source.flowColors, playback.destination.flowColors).map {
+            $0.mix(with: $1, by: blend, in: .perceptual)
+        }
+    }
+
     private func updateFlowAnchor(speed: Double, running: Bool) {
         let date = Date()
         if running {
@@ -778,8 +823,7 @@ struct BigClockView : View {
         let seedPhase = Double(visualSeed % 997) / 997.0 * .pi * 2
         let duration = 10.0 + Double(visualSeed % 4) * 3.0
         let direction = visualSeed.isMultiple(of: 2) ? 1.0 : -1.0
-        let elapsed = flowElapsed + (animatedBackgroundEnabled
-            ? date.timeIntervalSince(flowAnchor) * backgroundFlowSpeed : 0)
+        let elapsed = flowTime(at: date)
         return elapsed / duration * .pi * 2 * direction + seedPhase
     }
 
@@ -840,7 +884,7 @@ struct BigClockView : View {
 
                 if showDate {
                     dateLabel(size: isCompact ? 24 : 30,
-                              color: backgroundStyle.secondary)
+                              color: colorPlaybackEnabled ? .white.opacity(0.72) : backgroundStyle.secondary)
                         .frame(width: proxy.size.width * 0.90)
                         .position(x: proxy.size.width / 2,
                                   y: contentCenterY + (isCompact ? 92 : 118))
